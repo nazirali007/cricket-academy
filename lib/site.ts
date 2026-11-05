@@ -4,6 +4,9 @@ export const siteUrl = "https://www.ccsacademylucknow.com";
 // Real contact details go here. Anything left empty shows as "To be added" on
 // the site. `whatsapp` also powers the Join Now form: digits only, with the
 // country code, for example "919876543210".
+// The number shown on the ground booking rate chart.
+export const bookingPhone = "+91 7081885501";
+
 export const contact = {
   phone: "",
   whatsapp: "",

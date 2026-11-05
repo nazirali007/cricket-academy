@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { About } from "@/components/site/about";
 import { Admission } from "@/components/site/admission";
+import { BookSlot } from "@/components/site/booking/book-slot";
 import { Contact } from "@/components/site/contact";
 import { Facilities } from "@/components/site/facilities";
 import { Gallery } from "@/components/site/gallery";
@@ -20,6 +21,7 @@ export default function Home() {
       <About />
       <Members />
       <Facilities />
+      <BookSlot />
       <Admission />
       <Gallery />
       <Contact />

@@ -5,6 +5,7 @@ export const navLinks = [
   { id: "about", label: "About Us" },
   { id: "members", label: "Members" },
   { id: "facilities", label: "Facilities" },
+  { id: "book", label: "Book a Slot" },
   { id: "admission", label: "Admission" },
   { id: "gallery", label: "Gallery" },
   { id: "contact", label: "Contact Us" },

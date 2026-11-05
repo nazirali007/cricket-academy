@@ -33,6 +33,7 @@ export const metadata: Metadata = {
     "best cricket academy lko",
     "cricket coaching lucknow",
     "cricket academy near me",
+    "cricket ground booking lucknow",
     "CCS Cricket Academy",
   ],
   openGraph: {
