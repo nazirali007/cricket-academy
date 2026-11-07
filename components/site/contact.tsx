@@ -39,19 +39,19 @@ export function Contact() {
         </Reveal>
 
         <Reveal delay={0.1}>
-          <dl className="divide-y divide-navy/15 border-y border-navy/15">
+          <ul className="divide-y divide-navy/15 border-y border-navy/15">
             {details.map(({ icon: Icon, label, value, href }) => (
-              <div key={label} className="flex items-center gap-5 py-6">
+              <li key={label} className="flex items-center gap-5 py-6">
                 <Icon
                   aria-hidden
                   strokeWidth={1.5}
                   className="size-6 shrink-0 text-ball"
                 />
                 <div className="min-w-0">
-                  <dt className="text-xs font-bold tracking-[0.16em] text-muted-foreground uppercase">
+                  <p className="text-xs font-bold tracking-[0.16em] text-muted-foreground uppercase">
                     {label}
-                  </dt>
-                  <dd className="mt-1 text-lg font-semibold wrap-anywhere whitespace-pre-line">
+                  </p>
+                  <p className="mt-1 text-lg font-semibold wrap-anywhere whitespace-pre-line">
                     {href ? (
                       <a href={href} className="hover:text-ball">
                         {value}
@@ -59,11 +59,11 @@ export function Contact() {
                     ) : (
                       value
                     )}
-                  </dd>
+                  </p>
                 </div>
-              </div>
+              </li>
             ))}
-          </dl>
+          </ul>
         </Reveal>
       </div>
     </section>

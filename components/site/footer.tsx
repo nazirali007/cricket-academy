@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { navLinks, programs } from "@/lib/content";
-import { contact } from "@/lib/site";
+import { contact, stadiumPagePath } from "@/lib/site";
 import { Logo } from "./ui";
 
 const headingClass =
@@ -47,6 +47,14 @@ export function Footer() {
                   {program.title}
                 </li>
               ))}
+              <li>
+                <Link
+                  href={stadiumPagePath}
+                  className="text-white/85 transition-colors hover:text-ball-light"
+                >
+                  Cricket Stadium Booking
+                </Link>
+              </li>
               <li>
                 <Link
                   href="/#join"

@@ -3,7 +3,8 @@ import { Barlow_Condensed, Manrope } from "next/font/google";
 import { Footer } from "@/components/site/footer";
 import { Navbar } from "@/components/site/navbar";
 import { MotionProvider } from "@/components/site/reveal";
-import { contact, siteUrl } from "@/lib/site";
+import { homeShareDescription, homeTitle, sharedOpenGraph } from "@/lib/seo";
+import { bookingPhone, businessId, contact, mapsUrl, siteUrl } from "@/lib/site";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -18,12 +19,12 @@ const barlow = Barlow_Condensed({
 });
 
 const description =
-  "CCS Cricket Academy is the best cricket academy in Lucknow (LKO), offering professional coaching on a real cricket field, fitness training and match practice for young and aspiring cricketers. Join now!";
+  "CCS Cricket Academy is the best cricket academy in Lucknow (LKO), with professional coaching, match practice and an affordable cricket stadium to book online.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "CCS Cricket Academy | Best Cricket Academy in Lucknow",
+    default: homeTitle,
     template: "%s | CCS Cricket Academy Lucknow",
   },
   description,
@@ -33,24 +34,17 @@ export const metadata: Metadata = {
     "best cricket academy lko",
     "cricket coaching lucknow",
     "cricket academy near me",
+    "cricket academy chinhat lucknow",
+    "cricket stadium in lucknow",
+    "best cricket stadium in lucknow",
+    "affordable cricket stadium lucknow",
     "cricket ground booking lucknow",
     "CCS Cricket Academy",
   ],
   openGraph: {
-    type: "website",
-    locale: "en_IN",
-    siteName: "CCS Cricket Academy",
-    title: "CCS Cricket Academy | Best Cricket Academy in Lucknow",
-    description:
-      "Professional cricket training on a real cricket field in Lucknow. Join now.",
-    images: [
-      {
-        url: "/og-image.jpg",
-        width: 1200,
-        height: 630,
-        alt: "CCS Cricket Academy, cricket academy in Lucknow",
-      },
-    ],
+    ...sharedOpenGraph,
+    title: homeTitle,
+    description: homeShareDescription,
   },
   twitter: { card: "summary_large_image" },
   robots: { index: true, follow: true },
@@ -59,13 +53,18 @@ export const metadata: Metadata = {
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "SportsActivityLocation",
+  "@id": businessId,
   name: "CCS Cricket Academy",
+  alternateName: "CCS Academy",
   description,
   foundingDate: "2026",
   url: siteUrl,
   logo: `${siteUrl}/logo.png`,
   image: `${siteUrl}/og-image.jpg`,
   email: contact.email,
+  telephone: bookingPhone.replace(/\s/g, ""),
+  priceRange: "₹5,000 - ₹15,000",
+  hasMap: mapsUrl,
   sport: "Cricket",
   address: {
     "@type": "PostalAddress",

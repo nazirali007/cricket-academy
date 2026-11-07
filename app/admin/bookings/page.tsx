@@ -138,13 +138,13 @@ async function Bookings() {
 export default function AdminBookingsPage() {
   return (
     <>
-      <div className="bg-navy px-5 pt-32 pb-10 text-white md:px-8">
-        <h1 className="mx-auto max-w-7xl font-display text-5xl font-bold uppercase">
+      <div className="bg-navy pt-32 pb-10 text-white">
+        <h1 className="mx-auto max-w-7xl px-5 font-display text-5xl font-bold uppercase md:px-8">
           Ground bookings
         </h1>
       </div>
-      <section className="min-h-[60svh] bg-cream px-5 pb-20 md:px-8">
-        <div className="mx-auto max-w-7xl pt-2">
+      <section className="min-h-[60svh] bg-cream pb-20">
+        <div className="mx-auto max-w-7xl px-5 pt-2 md:px-8">
           <Suspense fallback={<p className="mt-8">Loading…</p>}>
             <Bookings />
           </Suspense>

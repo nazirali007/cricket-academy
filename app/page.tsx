@@ -8,9 +8,16 @@ import { Gallery } from "@/components/site/gallery";
 import { Hero } from "@/components/site/hero";
 import { Members } from "@/components/site/members";
 import { Ticker } from "@/components/site/ticker";
+import { homeShareDescription, homeTitle, sharedOpenGraph } from "@/lib/seo";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
+  openGraph: {
+    ...sharedOpenGraph,
+    url: "/",
+    title: homeTitle,
+    description: homeShareDescription,
+  },
 };
 
 export default function Home() {
@@ -21,7 +28,7 @@ export default function Home() {
       <About />
       <Members />
       <Facilities />
-      <BookSlot />
+      <BookSlot showPageLink />
       <Admission />
       <Gallery />
       <Contact />

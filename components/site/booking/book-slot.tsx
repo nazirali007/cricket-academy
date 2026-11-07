@@ -1,9 +1,11 @@
+import Link from "next/link";
+import { stadiumPagePath } from "@/lib/site";
 import { Reveal } from "../reveal";
 import { Eyebrow, Heading } from "../ui";
 import { RateChart } from "./rate-chart";
 import { SlotPicker } from "./slot-picker";
 
-export function BookSlot() {
+export function BookSlot({ showPageLink = false }: { showPageLink?: boolean }) {
   return (
     <section
       id="book"
@@ -14,9 +16,18 @@ export function BookSlot() {
           <Eyebrow onDark>Cricket Ground Match Booking</Eyebrow>
           <Heading>Your match. Our ground. Pick your slot.</Heading>
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-white/80">
-            For corporate matches, clubs and private games. See what&apos;s free
-            on any date and book it online in a minute.
+            For corporate matches, clubs and private games at our cricket
+            stadium in Lucknow. See what&apos;s free on any date and book it
+            online in a minute.
           </p>
+          {showPageLink && (
+            <Link
+              href={stadiumPagePath}
+              className="mt-4 inline-block font-semibold text-gold underline underline-offset-4"
+            >
+              More about cricket stadium booking in Lucknow
+            </Link>
+          )}
         </Reveal>
 
         <Reveal className="mt-12 md:mt-16">
