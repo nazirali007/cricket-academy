@@ -34,14 +34,23 @@ export function LoginForm() {
   );
 }
 
-export function CancelButton({ id, label }: { id: number; label: string }) {
+export function CancelButton({
+  id,
+  label,
+  paid,
+}: {
+  id: number;
+  label: string;
+  paid: boolean;
+}) {
   return (
     <form
       action={cancelBooking}
       onSubmit={(event) => {
-        if (!window.confirm(`Cancel ${label}? The slot will become available.`)) {
-          event.preventDefault();
-        }
+        const message = paid
+          ? `Cancel ${label}? The academy is cancelling, so the customer gets a FULL refund through Razorpay now, and the slots become available again.`
+          : `Cancel ${label}? Its slots will become available again.`;
+        if (!window.confirm(message)) event.preventDefault();
       }}
     >
       <input type="hidden" name="id" value={id} />

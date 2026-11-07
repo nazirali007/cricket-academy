@@ -1,30 +1,39 @@
 import { connection, NextResponse } from "next/server";
+import { blockedSlots } from "@/lib/blocked-slots";
 import { addDays, indiaNow, MAX_DAYS_AHEAD } from "@/lib/booking";
-import { getBookedSlots, isDatabaseConfigured } from "@/lib/db";
+import { getTakenSlots, isDatabaseConfigured } from "@/lib/db";
+import { isPaymentConfigured } from "@/lib/razorpay";
 
 export async function GET() {
   await connection();
 
   const { today, minutes } = indiaNow();
   const maxDate = addDays(today, MAX_DAYS_AHEAD);
-  const base = { today, nowMinutes: minutes, maxDate };
-  const headers = { "Cache-Control": "no-store" };
+  // Event slots are known without the database, so they always show.
+  const events = blockedSlots
+    .filter(({ date }) => date >= today && date <= maxDate)
+    .map(({ date, slotId }) => ({ date, slotId }));
 
-  if (!isDatabaseConfigured()) {
-    return NextResponse.json(
-      { ...base, connected: false, booked: [] },
-      { headers },
-    );
+  let taken: { date: string; slotId: string }[] = [];
+  let connected = isDatabaseConfigured();
+  if (connected) {
+    try {
+      taken = await getTakenSlots(today, maxDate);
+    } catch (error) {
+      console.error("Could not load booked slots", error);
+      connected = false;
+    }
   }
 
-  try {
-    const booked = await getBookedSlots(today, maxDate);
-    return NextResponse.json({ ...base, connected: true, booked }, { headers });
-  } catch (error) {
-    console.error("Could not load booked slots", error);
-    return NextResponse.json(
-      { ...base, connected: false, booked: [] },
-      { headers },
-    );
-  }
+  return NextResponse.json(
+    {
+      today,
+      nowMinutes: minutes,
+      maxDate,
+      // Online booking needs both the database and Razorpay.
+      online: connected && isPaymentConfigured(),
+      unavailable: [...events, ...taken],
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

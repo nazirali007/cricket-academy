@@ -2,7 +2,6 @@
 
 import { Menu, X } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import {
   AnimatePresence,
   motion,
@@ -18,9 +17,9 @@ const ease = [0.16, 1, 0.3, 1] as const;
 export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
-  const [activeSection, setActive] = useState("home");
-  // Sections only exist on the home page, so nothing is highlighted elsewhere.
-  const active = usePathname() === "/" ? activeSection : null;
+  // Set only when one of the home page sections is on screen, so other pages
+  // highlight nothing.
+  const [active, setActive] = useState<string | null>(null);
   const { scrollY, scrollYProgress } = useScroll();
 
   useMotionValueEvent(scrollY, "change", (y) => setScrolled(y > 24));

@@ -8,7 +8,8 @@ import {
   isAdmin,
   passwordMatches,
 } from "@/lib/admin-auth";
-import { deleteBooking } from "@/lib/db";
+import { cancelBookingAsAdmin } from "@/lib/db";
+import { refundInFull } from "@/lib/payments";
 
 const PATH = "/admin/bookings";
 
@@ -36,6 +37,7 @@ export async function cancelBooking(form: FormData) {
   if (!(await isAdmin())) return;
   const id = Number(form.get("id"));
   if (!Number.isInteger(id) || id <= 0) return;
-  await deleteBooking(id);
+  const booking = await cancelBookingAsAdmin(id);
+  if (booking?.status === "refund_pending") await refundInFull(booking);
   revalidatePath(PATH);
 }

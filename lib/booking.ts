@@ -146,3 +146,77 @@ export function indiaNow(now = new Date()) {
 
 export const bookingReference = (id: number) =>
   `CCS-${String(id).padStart(5, "0")}`;
+
+export const MAX_SLOTS_PER_BOOKING = 10;
+// How long slots stay reserved once a customer goes to pay.
+export const HOLD_MINUTES = 15;
+// Razorpay's window closes before the hold ends, so nobody pays for an
+// expired hold by simply leaving the window open.
+export const CHECKOUT_TIMEOUT_SECONDS = 10 * 60;
+
+export type CartItem = {
+  date: string;
+  slotId: SlotId;
+  balls: number;
+  umpires: boolean;
+};
+
+export type PricedLine = CartItem & {
+  slotName: string;
+  timing: string;
+  rate: number;
+  ballsCost: number;
+  umpiresCost: number;
+  total: number;
+};
+
+export const slotKey = (date: string, slotId: string) => `${date}|${slotId}`;
+
+export type SlotProblem = "invalid" | "past" | "started" | "too-far";
+
+// Why a slot can't be booked right now, or null if it can.
+export function checkSlot(
+  date: string,
+  slotId: string,
+  now: { today: string; minutes: number },
+): SlotProblem | null {
+  if (!isValidDate(date)) return "invalid";
+  const slot = findSlot(date, slotId);
+  if (!slot) return "invalid";
+  if (date < now.today) return "past";
+  if (date === now.today && slot.startsAt <= now.minutes) return "started";
+  if (date > addDays(now.today, MAX_DAYS_AHEAD)) return "too-far";
+  return null;
+}
+
+export function sortCart<T extends { date: string; slotId: string }>(
+  items: T[],
+) {
+  const start = (item: T) => findSlot(item.date, item.slotId)?.startsAt ?? 0;
+  return [...items].sort((a, b) =>
+    a.date === b.date ? start(a) - start(b) : a.date < b.date ? -1 : 1,
+  );
+}
+
+// The single place prices are worked out, on the page and on the server.
+export function priceCart(items: CartItem[]) {
+  const lines: PricedLine[] = [];
+  for (const item of sortCart(items)) {
+    const slot = findSlot(item.date, item.slotId);
+    if (!slot) continue;
+    const ballsCost = item.balls * BALL_PRICE;
+    const umpiresCost = item.umpires ? UMPIRES_PRICE : 0;
+    lines.push({
+      ...item,
+      slotName: slot.name,
+      timing: slot.timing,
+      rate: slot.rate,
+      ballsCost,
+      umpiresCost,
+      total: slot.rate + ballsCost + umpiresCost,
+    });
+  }
+  const groundTotal = lines.reduce((sum, line) => sum + line.rate, 0);
+  const total = lines.reduce((sum, line) => sum + line.total, 0);
+  return { lines, groundTotal, addOnsTotal: total - groundTotal, total };
+}

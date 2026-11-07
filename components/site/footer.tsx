@@ -100,9 +100,24 @@ export function Footer() {
           CCS CRICKET ACADEMY
         </div>
 
-        <p className="mt-8 border-t border-white/12 pt-6 text-sm text-white/60">
-          © CCS Cricket Academy, Lucknow. All rights reserved.
-        </p>
+        <div className="mt-8 flex flex-col gap-4 border-t border-white/12 pt-6 text-sm text-white/60 md:flex-row md:items-center md:justify-between">
+          <p>© CCS Cricket Academy, Lucknow. All rights reserved.</p>
+          <nav aria-label="Policies">
+            <ul className="flex flex-wrap gap-x-6 gap-y-2">
+              {[
+                ["/terms", "Terms"],
+                ["/privacy", "Privacy Policy"],
+                ["/refund-policy", "Refund & Cancellation"],
+              ].map(([href, label]) => (
+                <li key={href}>
+                  <Link href={href} className="transition-colors hover:text-white">
+                    {label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </div>
       </div>
     </footer>
   );
