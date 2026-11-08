@@ -18,8 +18,9 @@ export default function PrivacyPage() {
       <h2>What we collect</h2>
       <ul>
         <li>
-          When you book the ground: your name, mobile number, company or team name
-          (if you give one), the slots and add-ons you choose and the amount paid.
+          When you book the ground: your name, mobile number, email address,
+          company or team name (if you give one), the slots and add-ons you
+          choose and the amount paid.
         </li>
         <li>
           When you pay: a payment reference from Razorpay. Your card, UPI and bank
@@ -30,6 +31,7 @@ export default function PrivacyPage() {
       <h2>How we use it</h2>
       <ul>
         <li>To confirm and manage your booking, and to contact you about it.</li>
+        <li>To email you your booking invoice and any refund updates.</li>
         <li>To process payments and any refunds.</li>
         <li>To keep records we need for our accounts.</li>
       </ul>

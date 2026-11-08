@@ -2,6 +2,7 @@ import { connection, NextResponse } from "next/server";
 import { blockedSlots } from "@/lib/blocked-slots";
 import { addDays, indiaNow, MAX_DAYS_AHEAD } from "@/lib/booking";
 import { getTakenSlots, isDatabaseConfigured } from "@/lib/db";
+import { isDemoMode } from "@/lib/demo";
 import { isPaymentConfigured } from "@/lib/razorpay";
 
 export async function GET() {
@@ -25,13 +26,15 @@ export async function GET() {
     }
   }
 
+  const online = connected && isPaymentConfigured();
   return NextResponse.json(
     {
       today,
       nowMinutes: minutes,
       maxDate,
       // Online booking needs both the database and Razorpay.
-      online: connected && isPaymentConfigured(),
+      online,
+      demo: !online && isDemoMode(),
       unavailable: [...events, ...taken],
     },
     { headers: { "Cache-Control": "no-store" } },

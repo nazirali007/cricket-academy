@@ -1,13 +1,13 @@
-import { findSlot, slotKey, type SlotId } from "./booking";
+import { slotKey, type SlotId } from "./booking";
 
 // Slots taken by the academy's own events. They show as Booked and can't be
-// bought online. A "morning shift" covers Morning and, on weekends, Afternoon;
-// an "evening shift" covers Evening. Night slots stay bookable.
+// bought online. A "morning shift" is the Morning slot and an "evening shift"
+// is the Evening slot. Night slots stay bookable.
 const events: { event: string; dates: string[]; slots: SlotId[] }[] = [
   {
     event: "CMP Tournament S7",
     dates: ["2026-11-07"],
-    slots: ["morning", "afternoon"],
+    slots: ["morning"],
   },
   {
     event: "CMP Tournament S7",
@@ -23,7 +23,7 @@ const events: { event: string; dates: string[]; slots: SlotId[] }[] = [
       "2026-12-27",
       "2027-01-03",
     ],
-    slots: ["morning", "afternoon", "evening"],
+    slots: ["morning", "evening"],
   },
   {
     event: "CCS Infratech Match",
@@ -32,13 +32,8 @@ const events: { event: string; dates: string[]; slots: SlotId[] }[] = [
   },
 ];
 
-// Weekday dates have no Afternoon slot, so it is skipped for them.
 export const blockedSlots = events.flatMap(({ event, dates, slots }) =>
-  dates.flatMap((date) =>
-    slots
-      .filter((slotId) => findSlot(date, slotId))
-      .map((slotId) => ({ date, slotId, event })),
-  ),
+  dates.flatMap((date) => slots.map((slotId) => ({ date, slotId, event }))),
 );
 
 export const blockedKeys = new Set(

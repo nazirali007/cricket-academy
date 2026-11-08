@@ -4,6 +4,7 @@ import {
   bookingReference,
   checkSlot,
   indiaNow,
+  isValidEmail,
   MAX_BALLS,
   MAX_SLOTS_PER_BOOKING,
   priceCart,
@@ -100,6 +101,8 @@ export async function POST(request: Request) {
   if (name.length < 2) return fail(400, "Please enter your name.");
   const phone = normalisePhone(body.phone);
   if (!phone) return fail(400, "Please enter a valid 10-digit mobile number.");
+  const email = text(body.email, 254).toLowerCase();
+  if (!isValidEmail(email)) return fail(400, "Please enter a valid email address.");
   const organisation = text(body.organisation, 120) || null;
 
   const items = parseItems(body.items);
@@ -137,6 +140,7 @@ export async function POST(request: Request) {
       lines: priced.lines,
       name,
       phone,
+      email,
       organisation,
       total: priced.total,
     });

@@ -68,7 +68,7 @@ const faqs = [
   {
     question: "Can I book the ground for a corporate match or at night?",
     answer:
-      "Yes. Companies, clubs and private groups can all book, and there are morning, evening and night slots every day, plus an afternoon slot on weekends.",
+      "Yes. Companies, clubs and private groups can all book, and there are 3 slots every day: morning (8:00 AM – 12:00 PM), evening (3:00 PM – 7:30 PM) and night (8:00 PM – 12:00 AM).",
   },
   {
     question: "Do the rates include umpires and match balls?",

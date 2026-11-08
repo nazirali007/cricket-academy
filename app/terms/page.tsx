@@ -38,7 +38,7 @@ export default function TermsPage() {
           press Pay, your slots are held for you for {HOLD_MINUTES} minutes.
         </li>
         <li>
-          A night slot that ends after midnight belongs to the date it starts on.
+          There are 3 slots every day: Morning 8:00 AM – 12:00 PM, Evening 3:00 PM – 7:30 PM and Night 8:00 PM – 12:00 AM. The night slot belongs to the date it starts on.
         </li>
         <li>
           Ground rates don&apos;t include umpires or match balls. You can add them

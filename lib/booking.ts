@@ -6,7 +6,7 @@ export const MAX_BALLS = 20;
 export const BALL_PRICE = 400;
 export const UMPIRES_PRICE = 1400;
 
-export type SlotId = "morning" | "afternoon" | "evening" | "night";
+export type SlotId = "morning" | "evening" | "night";
 
 export type Slot = {
   id: SlotId;
@@ -17,60 +17,27 @@ export type Slot = {
   startsAt: number;
 };
 
-export const weekdaySlots: Slot[] = [
-  {
-    id: "morning",
-    name: "Morning",
-    timing: "7:30 AM – 2:00 PM",
-    rate: 5000,
-    startsAt: 450,
-  },
-  {
-    id: "evening",
-    name: "Evening",
-    timing: "3:30 PM – 8:00 PM",
-    rate: 12500,
-    startsAt: 930,
-  },
-  {
-    id: "night",
-    name: "Night",
-    timing: "8:30 PM – 12:00 AM",
-    rate: 13000,
-    startsAt: 1230,
-  },
-];
+// The same 3 slots run every day. Only the rates differ at weekends.
+const daySlots = [
+  { id: "morning", name: "Morning", timing: "8:00 AM – 12:00 PM", startsAt: 480 },
+  { id: "evening", name: "Evening", timing: "3:00 PM – 7:30 PM", startsAt: 900 },
+  { id: "night", name: "Night", timing: "8:00 PM – 12:00 AM", startsAt: 1200 },
+] as const;
 
-export const weekendSlots: Slot[] = [
-  {
-    id: "morning",
-    name: "Morning",
-    timing: "7:30 AM – 12:00 PM",
-    rate: 8000,
-    startsAt: 450,
-  },
-  {
-    id: "afternoon",
-    name: "Afternoon",
-    timing: "12:30 PM – 3:30 PM",
-    rate: 8000,
-    startsAt: 750,
-  },
-  {
-    id: "evening",
-    name: "Evening",
-    timing: "4:00 PM – 8:00 PM",
-    rate: 12500,
-    startsAt: 960,
-  },
-  {
-    id: "night",
-    name: "Night",
-    timing: "8:30 PM – 12:30 AM",
-    rate: 15000,
-    startsAt: 1230,
-  },
-];
+const withRates = (rates: Record<SlotId, number>): Slot[] =>
+  daySlots.map((slot) => ({ ...slot, rate: rates[slot.id] }));
+
+export const weekdaySlots = withRates({
+  morning: 5000,
+  evening: 12500,
+  night: 13000,
+});
+
+export const weekendSlots = withRates({
+  morning: 8000,
+  evening: 12500,
+  night: 15000,
+});
 
 const toUtc = (date: string) => new Date(`${date}T00:00:00Z`);
 
@@ -220,3 +187,7 @@ export function priceCart(items: CartItem[]) {
   const total = lines.reduce((sum, line) => sum + line.total, 0);
   return { lines, groundTotal, addOnsTotal: total - groundTotal, total };
 }
+
+const EMAIL = /^[^\s@<>()[\],;:"]+@[^\s@<>()[\],;:"]+\.[a-z]{2,}$/i;
+export const isValidEmail = (email: string) =>
+  email.length <= 254 && EMAIL.test(email);

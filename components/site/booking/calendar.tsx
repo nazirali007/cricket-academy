@@ -28,6 +28,7 @@ export function MonthCalendar({
   selectedDate,
   onSelectDate,
   statesFor,
+  chosenCount,
 }: {
   month: string;
   onMonthChange: (month: string) => void;
@@ -36,6 +37,8 @@ export function MonthCalendar({
   selectedDate: string;
   onSelectDate: (date: string) => void;
   statesFor: (date: string) => SlotState[];
+  // How many of the customer's chosen slots fall on this date.
+  chosenCount: (date: string) => number;
 }) {
   const [year, m] = month.split("-").map(Number);
   const daysInMonth = new Date(Date.UTC(year, m, 0)).getUTCDate();
@@ -93,6 +96,7 @@ export function MonthCalendar({
           ).length;
           const anyBooked = states.includes("booked");
           const isSelected = date === selectedDate;
+          const chosen = chosenCount(date);
 
           if (!inWindow) {
             return (
@@ -113,22 +117,36 @@ export function MonthCalendar({
               onClick={() => onSelectDate(date)}
               aria-pressed={isSelected}
               aria-label={`${formatDate(date)}: ${
+                chosen
+                  ? `${chosen} slot${chosen === 1 ? "" : "s"} chosen, `
+                  : ""
+              }${
                 free === 0
                   ? anyBooked
                     ? "fully booked"
                     : "no slots left"
                   : `${free} of ${states.length} slots available`
               }`}
-              className={`flex aspect-square flex-col items-center justify-center gap-1 border text-sm font-bold transition-colors ${
+              className={`relative flex aspect-square flex-col items-center justify-center gap-1 border text-sm font-bold transition-colors ${
                 isSelected
-                  ? "border-white bg-white text-navy"
-                  : free === 0
+                  ? `bg-white text-navy ${chosen ? "border-gold ring-2 ring-gold" : "border-white"}`
+                  : chosen
+                    ? "border-2 border-gold bg-gold/25 text-white"
+                    : free === 0
                     ? anyBooked
                       ? "border-red-500/50 bg-red-600/25 text-white"
                       : "border-white/10 bg-white/5 text-white/50"
                     : "border-white/15 text-white hover:border-white/60"
               }`}
             >
+              {chosen > 0 && (
+                <span
+                  aria-hidden
+                  className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-gold text-[10px] font-bold text-navy"
+                >
+                  {chosen}
+                </span>
+              )}
               {i + 1}
               <span aria-hidden className="flex gap-0.5">
                 {states.map((state, n) => (

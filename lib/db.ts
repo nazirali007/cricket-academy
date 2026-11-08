@@ -36,7 +36,9 @@ const schema = `
   );
   CREATE INDEX IF NOT EXISTS slot_locks_booking ON slot_locks (booking_id);
   ALTER TABLE ground_bookings
-    ADD COLUMN IF NOT EXISTS cancelled_by_academy BOOLEAN NOT NULL DEFAULT FALSE;
+    ADD COLUMN IF NOT EXISTS cancelled_by_academy BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS customer_email TEXT,
+    ADD COLUMN IF NOT EXISTS invoice_sent_at TIMESTAMPTZ;
 `;
 
 let pool: Pool | undefined;
@@ -111,6 +113,7 @@ export type BookingRecord = {
   name: string;
   phone: string;
   organisation: string | null;
+  email: string | null;
   lines: PricedLine[];
   total: number;
   orderId: string | null;
@@ -121,13 +124,15 @@ export type BookingRecord = {
   createdAt: string;
   // True when the academy cancelled a paid booking, which is refunded in full.
   cancelledByAcademy: boolean;
+  invoiceSentAt: string | null;
 };
 
 const columns = `id, token, status, customer_name AS name, phone, organisation,
   lines, total_rupees AS total, razorpay_order_id AS "orderId",
   razorpay_payment_id AS "paymentId", refund_id AS "refundId",
   expires_at AS "expiresAt", paid_at AS "paidAt", created_at AS "createdAt",
-  cancelled_by_academy AS "cancelledByAcademy"`;
+  cancelled_by_academy AS "cancelledByAcademy", customer_email AS email,
+  invoice_sent_at AS "invoiceSentAt"`;
 
 // Only dates and slots, so no customer details ever reach the public page.
 export async function getTakenSlots(from: string, to: string) {
@@ -157,6 +162,7 @@ export async function createHold(input: {
   lines: PricedLine[];
   name: string;
   phone: string;
+  email: string;
   organisation: string | null;
   total: number;
 }): Promise<
@@ -168,8 +174,8 @@ export async function createHold(input: {
       await expireStaleHolds(client);
       const { rows } = await client.query<BookingRecord>(
         `INSERT INTO ground_bookings
-           (status, customer_name, phone, organisation, lines, total_rupees, expires_at)
-         VALUES ('pending', $1, $2, $3, $4, $5, NOW() + make_interval(mins => $6))
+           (status, customer_name, phone, organisation, lines, total_rupees, expires_at, customer_email)
+         VALUES ('pending', $1, $2, $3, $4, $5, NOW() + make_interval(mins => $6), $7)
          RETURNING ${columns}`,
         [
           input.name,
@@ -178,6 +184,7 @@ export async function createHold(input: {
           JSON.stringify(input.lines),
           input.total,
           HOLD_MINUTES,
+          input.email,
         ],
       );
       await lockSlots(client, rows[0].id, input.lines);
@@ -340,4 +347,20 @@ export async function cancelBookingAsAdmin(bookingId: number) {
     }
     return rows[0] ?? null;
   });
+}
+
+export async function markInvoiceSent(bookingId: number) {
+  const db = await database();
+  await db.query("UPDATE ground_bookings SET invoice_sent_at = NOW() WHERE id = $1", [
+    bookingId,
+  ]);
+}
+
+export async function getBookingById(bookingId: number) {
+  const db = await database();
+  const { rows } = await db.query<BookingRecord>(
+    `SELECT ${columns} FROM ground_bookings WHERE id = $1`,
+    [bookingId],
+  );
+  return rows[0] ?? null;
 }

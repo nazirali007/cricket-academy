@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { cancelBooking, logIn } from "./actions";
+import { cancelBooking, logIn, resendInvoice } from "./actions";
 
 export function LoginForm() {
   const [error, action, pending] = useActionState(logIn, null);
@@ -59,6 +59,17 @@ export function CancelButton({
         className="border border-red-700 px-3 py-1.5 text-sm font-bold text-red-700 transition-colors hover:bg-red-700 hover:text-white"
       >
         Cancel
+      </button>
+    </form>
+  );
+}
+
+export function ResendInvoiceButton({ id }: { id: number }) {
+  return (
+    <form action={resendInvoice}>
+      <input type="hidden" name="id" value={id} />
+      <button type="submit" className="text-xs font-bold underline">
+        Resend invoice
       </button>
     </form>
   );

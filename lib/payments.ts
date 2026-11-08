@@ -3,10 +3,16 @@ import {
   claimRefund,
   finalizePayment,
   getBookingByOrderId,
+  markInvoiceSent,
   recordRefund,
   type BookingRecord,
 } from "./db";
-import { sendBookingAlert, sendRefundAlert } from "./email";
+import {
+  sendBookingAlert,
+  sendCustomerRefundNotice,
+  sendInvoice,
+  sendRefundAlert,
+} from "./email";
 import {
   capturePayment,
   fetchPayment,
@@ -40,6 +46,9 @@ export async function refundInFull(booking: BookingRecord) {
     result = await recordRefund(booking.id, "refund_failed", null);
   }
   notify(() => sendRefundAlert(result), result.id);
+  notify(async () => {
+    await sendCustomerRefundNotice(result);
+  }, result.id);
   return result;
 }
 
@@ -78,6 +87,11 @@ export async function settlePayment(
 
   if (result.outcome === "updated" && current.status === "confirmed") {
     const confirmed = current;
+    // Runs straight after the response, so the customer's invoice arrives
+    // within moments without slowing down their confirmation screen.
+    notify(async () => {
+      if (await sendInvoice(confirmed)) await markInvoiceSent(confirmed.id);
+    }, confirmed.id);
     notify(() => sendBookingAlert(confirmed), confirmed.id);
   }
 

@@ -16,7 +16,7 @@ import {
   type BookingStatus,
 } from "@/lib/db";
 import { logOut } from "./actions";
-import { CancelButton, LoginForm } from "./forms";
+import { CancelButton, LoginForm, ResendInvoiceButton } from "./forms";
 
 export const metadata: Metadata = {
   title: "Bookings",
@@ -105,6 +105,14 @@ async function Bookings() {
                     <span className={`inline-block px-2 py-1 text-xs font-bold ${style}`}>
                       {label}
                     </span>
+                    {booking.status === "confirmed" && (
+                      <div className="mt-2 space-y-1 text-xs">
+                        <p className={booking.invoiceSentAt ? "text-emerald-700" : "text-red-700"}>
+                          {booking.invoiceSentAt ? "Invoice emailed" : "Invoice not sent"}
+                        </p>
+                        <ResendInvoiceButton id={booking.id} />
+                      </div>
+                    )}
                   </td>
                   <td className="p-3">
                     <ul className="space-y-1">
@@ -127,6 +135,11 @@ async function Bookings() {
                     <a href={`tel:+91${booking.phone}`} className="block underline">
                       {booking.phone}
                     </a>
+                    {booking.email && (
+                      <a href={`mailto:${booking.email}`} className="block break-all underline">
+                        {booking.email}
+                      </a>
+                    )}
                     {booking.organisation && (
                       <span className="block text-muted-foreground">
                         {booking.organisation}

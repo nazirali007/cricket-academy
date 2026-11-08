@@ -85,6 +85,12 @@ async function Receipt({ params }: { params: Promise<{ token: string }> }) {
           <dt className="text-muted-foreground">Mobile</dt>
           <dd className="font-semibold">+91 {booking.phone}</dd>
         </div>
+        {booking.email && (
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">Invoice sent to</dt>
+            <dd className="font-semibold break-all">{booking.email}</dd>
+          </div>
+        )}
         {booking.paymentId && (
           <div className="flex justify-between gap-4">
             <dt className="text-muted-foreground">Payment ID</dt>

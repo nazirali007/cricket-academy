@@ -19,6 +19,7 @@ import {
   checkSlot,
   formatDate,
   formatRupees,
+  isValidEmail,
   MAX_BALLS,
   MAX_SLOTS_PER_BOOKING,
   priceCart,
@@ -32,6 +33,7 @@ import {
 } from "@/lib/booking";
 import { bookingPhone } from "@/lib/site";
 import { MonthCalendar, type SlotState } from "./calendar";
+import { DemoCheckout } from "./demo-checkout";
 import { SlotIcon } from "./slot-icon";
 
 const REFRESH_EVERY_MS = 20_000;
@@ -42,12 +44,18 @@ type Availability = {
   nowMinutes: number;
   maxDate: string;
   online: boolean;
+  demo: boolean;
   unavailable: { date: string; slotId: string }[];
 };
 
 type Phase = "select" | "details" | "review" | "paying" | "confirming" | "done";
 
-type Details = { name: string; phone: string; organisation: string };
+type Details = {
+  name: string;
+  phone: string;
+  email: string;
+  organisation: string;
+};
 
 type Outcome = {
   status: "confirmed" | "refunded" | "refund_failed" | "refunding" | "checking";
@@ -164,13 +172,23 @@ export function BookingApp() {
   const [details, setDetails] = useState<Details>({
     name: "",
     phone: "",
+    email: "",
     organisation: "",
   });
+  // Test mode only: what happened to the test invoice email.
+  const [demoInvoice, setDemoInvoice] = useState<{ sent: boolean; html: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [holdUntil, setHoldUntil] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // Test mode only: bookings kept in memory, so a refresh clears them.
+  const [demoBooked, setDemoBooked] = useState<string[]>([]);
+  const [demoPayment, setDemoPayment] = useState<{
+    reference: string;
+    lines: PricedLine[];
+    total: number;
+  } | null>(null);
 
   const restored = useRef(false);
   const itemsRef = useRef<CartItem[]>([]);
@@ -199,7 +217,12 @@ export function BookingApp() {
         !taken.has(slotKey(item.date, item.slotId)) &&
         checkSlot(item.date, item.slotId, now) === null;
 
-      const base = restored.current ? itemsRef.current : readCart();
+      // In test mode nothing is restored, so a refresh starts clean.
+      const base = restored.current
+        ? itemsRef.current
+        : next.demo
+          ? []
+          : readCart();
       restored.current = true;
       // During payment the customer's own hold shows as taken, so leave it.
       if (["paying", "confirming", "done"].includes(phaseRef.current)) return;
@@ -239,8 +262,8 @@ export function BookingApp() {
 
   useEffect(() => {
     itemsRef.current = items;
-    if (restored.current) saveCart(items);
-  }, [items]);
+    if (restored.current && !data?.demo) saveCart(items);
+  }, [items, data?.demo]);
 
   if (!data) {
     return (
@@ -266,11 +289,15 @@ export function BookingApp() {
     );
   }
 
-  const { today, nowMinutes, maxDate, online } = data;
+  const { today, nowMinutes, maxDate, online, demo } = data;
+  const canBook = online || demo;
   const now = { today, minutes: nowMinutes };
-  const taken = new Set(data.unavailable.map((u) => slotKey(u.date, u.slotId)));
+  const taken = new Set([
+    ...data.unavailable.map((u) => slotKey(u.date, u.slotId)),
+    ...demoBooked,
+  ]);
   const inCart = new Set(items.map((i) => slotKey(i.date, i.slotId)));
-  const editable = phase === "select" && online;
+  const editable = phase === "select" && canBook;
 
   const stateOf = (date: string, slot: Slot): SlotState => {
     const key = slotKey(date, slot.id);
@@ -342,12 +369,16 @@ export function BookingApp() {
     const next = {
       name: String(form.get("name") ?? "").trim(),
       phone: String(form.get("phone") ?? "").trim(),
+      email: String(form.get("email") ?? "").trim().toLowerCase(),
       organisation: String(form.get("organisation") ?? "").trim(),
     };
     const digits = next.phone.replace(/\D/g, "").replace(/^(91|0)(?=\d{10}$)/, "");
     if (next.name.length < 2) return setError("Please enter your name.");
     if (!/^[6-9]\d{9}$/.test(digits)) {
       return setError("Please enter a valid 10-digit mobile number.");
+    }
+    if (!isValidEmail(next.email)) {
+      return setError("Please enter a valid email address for your invoice.");
     }
     setDetails({ ...next, phone: digits });
     setError(null);
@@ -426,6 +457,23 @@ export function BookingApp() {
     setNotice(null);
     const snapshot = priceCart(items);
 
+    if (demo) {
+      // Nothing is sent to the server or Razorpay in test mode.
+      const clash = snapshot.lines.filter((l) => taken.has(slotKey(l.date, l.slotId)));
+      setBusy(false);
+      if (clash.length) {
+        setItems(items.filter((i) => !taken.has(slotKey(i.date, i.slotId))));
+        setNotice(`Sorry, ${clash.map(lineLabel).join("; ")} is no longer available.`);
+        return goTo("select");
+      }
+      setDemoPayment({
+        reference: `TEST-${String(Date.now()).slice(-5)}`,
+        lines: snapshot.lines,
+        total: snapshot.total,
+      });
+      return goTo("paying");
+    }
+
     let response: Response;
     let body: Record<string, unknown>;
     try {
@@ -442,6 +490,7 @@ export function BookingApp() {
           expectedTotal: snapshot.total,
           name: details.name,
           phone: details.phone,
+          email: details.email,
           organisation: details.organisation,
           website: (document.getElementById("booking-website") as HTMLInputElement | null)?.value ?? "",
         }),
@@ -521,6 +570,45 @@ export function BookingApp() {
     checkout.open();
   }
 
+  function finishDemoPayment() {
+    if (!demoPayment) return;
+    const { reference, lines, total } = demoPayment;
+    setDemoBooked((booked) => [
+      ...booked,
+      ...lines.map((l) => slotKey(l.date, l.slotId)),
+    ]);
+    setDemoPayment(null);
+    setItems([]);
+    setDemoInvoice(null);
+    setOutcome({ status: "confirmed", reference, token: "", lines, total });
+    goTo("done");
+    fetch("/api/demo/invoice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reference,
+        items: lines.map(({ date, slotId, balls, umpires }) => ({ date, slotId, balls, umpires })),
+        ...details,
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((result) => result && setDemoInvoice(result))
+      .catch(() => {});
+  }
+
+  function previewInvoice() {
+    if (!demoInvoice) return;
+    const url = URL.createObjectURL(new Blob([demoInvoice.html], { type: "text/html;charset=utf-8" }));
+    window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  function cancelDemoPayment() {
+    setDemoPayment(null);
+    goTo("review");
+    setError("Payment wasn't completed, so your slots were released. You can try again.");
+  }
+
   function startOver() {
     setOutcome(null);
     setError(null);
@@ -533,7 +621,14 @@ export function BookingApp() {
   return (
     <div id="pick-a-slot" className="grid scroll-mt-24 gap-8 lg:grid-cols-[1.35fr_1fr]">
       <div className="min-w-0">
-        {!online && (
+        {demo && (
+          <p role="status" className="mb-6 border-2 border-amber-400 bg-amber-400/15 p-4">
+            <strong className="text-amber-300">Test mode.</strong> Try the whole
+            booking and payment flow. Nothing is saved and no money is taken.
+            Refresh the page to clear your test bookings.
+          </p>
+        )}
+        {!canBook && (
           <p role="status" className="mb-6 border border-gold/60 bg-gold/10 p-4">
             Online booking isn&apos;t available right now. You can still check which
             slots are free, and call{" "}
@@ -559,6 +654,10 @@ export function BookingApp() {
             Your choice
           </li>
           <li className="flex items-center gap-2">
+            <span aria-hidden className="size-3.5 border-2 border-gold bg-gold/25" />
+            Date with your slots
+          </li>
+          <li className="flex items-center gap-2">
             <span aria-hidden className="h-2 w-4 rounded-full bg-white/25" />
             Closed
           </li>
@@ -576,6 +675,7 @@ export function BookingApp() {
             selectedDate={date}
             onSelectDate={chooseDate}
             statesFor={(day) => slotsFor(day).map((slot) => stateOf(day, slot))}
+            chosenCount={(day) => items.filter((i) => i.date === day).length}
           />
         </div>
 
@@ -585,7 +685,7 @@ export function BookingApp() {
         <p className="mt-1 text-white/75">
           {editable
             ? "Tap a green slot to add it. You can add slots from different dates."
-            : online
+            : canBook
               ? "Go back to step 1 to change your slots."
               : "Booked slots are shown in red."}
         </p>
@@ -775,7 +875,7 @@ export function BookingApp() {
               </div>
               <button
                 type="button"
-                disabled={items.length === 0 || !online}
+                disabled={items.length === 0 || !canBook}
                 onClick={() => {
                   setNotice(null);
                   goTo("details");
@@ -783,7 +883,7 @@ export function BookingApp() {
                 }}
                 className="mt-5 h-13 w-full bg-ball text-sm font-bold text-white transition-colors hover:bg-[#a81f18] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Continue
+                {items.length > 1 ? `Book ${items.length} slots` : "Book this slot"}
               </button>
             </div>
           )}
@@ -820,6 +920,20 @@ export function BookingApp() {
                   />
                 </label>
                 <label className="block text-sm font-semibold">
+                  Email for your invoice
+                  <input
+                    name="email"
+                    required
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    maxLength={254}
+                    placeholder="you@example.com"
+                    defaultValue={details.email}
+                    className={inputClass}
+                  />
+                </label>
+                <label className="block text-sm font-semibold">
                   Company or team (optional)
                   <input
                     name="organisation"
@@ -850,7 +964,7 @@ export function BookingApp() {
                   type="submit"
                   className="h-13 flex-1 bg-ball text-sm font-bold text-white transition-colors hover:bg-[#a81f18]"
                 >
-                  Review booking
+                  Next
                 </button>
               </div>
             </form>
@@ -920,6 +1034,10 @@ export function BookingApp() {
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Mobile</dt>
                   <dd className="font-semibold">+91 {details.phone}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Invoice to</dt>
+                  <dd className="text-right font-semibold break-all">{details.email}</dd>
                 </div>
                 {details.organisation && (
                   <div className="flex justify-between gap-4">
@@ -1036,6 +1154,12 @@ export function BookingApp() {
                   <p className="mt-2 text-muted-foreground">
                     Payment received. Your reference is{" "}
                     <strong className="text-navy">{outcome.reference}</strong>.
+                    {outcome.token && (
+                      <>
+                        {" "}Your invoice is on its way to{" "}
+                        <strong className="text-navy break-all">{details.email}</strong>.
+                      </>
+                    )}
                   </p>
                 </>
               ) : outcome.status === "checking" ? (
@@ -1078,12 +1202,37 @@ export function BookingApp() {
                 <span>{formatRupees(outcome.total)}</span>
               </p>
 
-              <Link
-                href={`/booking/${outcome.token}`}
-                className="mt-6 flex h-12 items-center justify-center bg-navy text-sm font-bold text-white"
-              >
-                View and save your booking
-              </Link>
+              {outcome.token ? (
+                <Link
+                  href={`/booking/${outcome.token}`}
+                  className="mt-6 flex h-12 items-center justify-center bg-navy text-sm font-bold text-white"
+                >
+                  View and save your booking
+                </Link>
+              ) : (
+                <div className="mt-6 space-y-3 bg-amber-100 p-3 text-sm font-semibold text-amber-900">
+                  <p>
+                    Test booking: these slots now show as Booked until you refresh
+                    the page.
+                  </p>
+                  <p role="status">
+                    {!demoInvoice
+                      ? "Preparing your invoice…"
+                      : demoInvoice.sent
+                        ? `Test invoice emailed to ${details.email}.`
+                        : `On the live site the invoice is emailed to ${details.email}. Email isn't set up on this computer, so preview it instead.`}
+                  </p>
+                  {demoInvoice && (
+                    <button
+                      type="button"
+                      onClick={previewInvoice}
+                      className="h-10 w-full bg-navy text-sm font-bold text-white"
+                    >
+                      Preview invoice email
+                    </button>
+                  )}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={startOver}
@@ -1095,6 +1244,17 @@ export function BookingApp() {
           )}
         </div>
       </div>
+
+      {demoPayment && (
+        <DemoCheckout
+          amount={demoPayment.total}
+          reference={demoPayment.reference}
+          name={details.name}
+          phone={details.phone}
+          onSuccess={finishDemoPayment}
+          onClose={cancelDemoPayment}
+        />
+      )}
 
       {phase === "select" && items.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-4 border-t border-white/15 bg-navy/97 px-5 py-3 text-white backdrop-blur lg:hidden">
