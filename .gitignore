@@ -22,6 +22,9 @@
 
 # misc
 .DS_Store
+
+# camera originals (468 MB); the site uses the resized copies in /public/gallery
+/public/images/
 *.pem
 
 # debug

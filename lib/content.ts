@@ -95,17 +95,3 @@ export const steps = [
     text: "Choose the right batch and start your training.",
   },
 ];
-
-// Set `photo` to a file in /public, for example "/gallery/field.jpg".
-export const gallery: {
-  caption: string;
-  photo?: string;
-  span: string;
-}[] = [
-  { caption: "On the field", span: "md:col-span-2 md:row-span-2" },
-  { caption: "Coaching sessions", span: "" },
-  { caption: "Fitness training", span: "" },
-  { caption: "Match day", span: "md:col-span-2" },
-  { caption: "Young players", span: "" },
-  { caption: "The team", span: "md:col-span-3" },
-];

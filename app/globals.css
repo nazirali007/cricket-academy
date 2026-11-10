@@ -210,14 +210,43 @@
   animation: delivery 4.5s ease-in 1.2s infinite both;
 }
 
-/* Mown outfield stripes, used behind gallery tiles without a photo. */
-.field-stripes {
-  background-color: #1d4a33;
-  background-image: repeating-linear-gradient(
-    100deg,
-    rgb(255 255 255 / 0.05) 0 44px,
-    transparent 44px 88px
+/* Gallery */
+.text-outline {
+  color: transparent;
+  -webkit-text-stroke: 1.5px rgb(255 255 255 / 0.55);
+}
+.gallery-glow {
+  background: radial-gradient(circle, rgb(212 171 106 / 0.16), transparent 65%);
+}
+@keyframes gallery-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.gallery-progress {
+  animation-name: gallery-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+/* A streak of light that sweeps across a tile on hover. */
+.gallery-shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    rgb(255 255 255 / 0.28) 50%,
+    transparent 65%
   );
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+.group:hover .gallery-shine {
+  transform: translateX(120%);
+  transition: transform 1s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -229,6 +258,9 @@
   .marquee,
   .flood-pulse {
     animation: none;
+  }
+  .gallery-shine {
+    display: none;
   }
   .delivery {
     animation: none;

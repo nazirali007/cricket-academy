@@ -3,6 +3,7 @@ import { Barlow_Condensed, Manrope } from "next/font/google";
 import { Footer } from "@/components/site/footer";
 import { Navbar } from "@/components/site/navbar";
 import { MotionProvider } from "@/components/site/reveal";
+import { carouselPhotos } from "@/lib/gallery";
 import { homeShareDescription, homeTitle, sharedOpenGraph } from "@/lib/seo";
 import { bookingPhone, businessId, contact, mapsUrl, siteUrl } from "@/lib/site";
 import "./globals.css";
@@ -60,7 +61,10 @@ const jsonLd = {
   foundingDate: "2026",
   url: siteUrl,
   logo: `${siteUrl}/logo.png`,
-  image: `${siteUrl}/og-image.jpg`,
+  image: [
+    `${siteUrl}/og-image.jpg`,
+    ...carouselPhotos.slice(0, 3).map((p) => `${siteUrl}${p.src}`),
+  ],
   email: contact.email,
   telephone: bookingPhone.replace(/\s/g, ""),
   priceRange: "₹5,000 - ₹15,000",
