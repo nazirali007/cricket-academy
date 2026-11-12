@@ -9,6 +9,7 @@ import {
   formatRupees,
   MAX_DAYS_AHEAD,
   UMPIRES_PRICE,
+  slotSummary,
   weekdaySlots,
   weekendSlots,
 } from "@/lib/booking";
@@ -67,8 +68,7 @@ const faqs = [
   },
   {
     question: "Can I book the ground for a corporate match or at night?",
-    answer:
-      "Yes. Companies, clubs and private groups can all book, and there are 3 slots every day: morning (8:00 AM – 12:00 PM), evening (3:00 PM – 7:30 PM) and night (8:00 PM – 12:00 AM).",
+    answer: `Yes. Companies, clubs and private groups can all book, and there are 4 slots every day: ${slotSummary}.`,
   },
   {
     question: "Do the rates include umpires and match balls?",

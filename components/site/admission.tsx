@@ -9,7 +9,7 @@ export function Admission() {
       <div className="mx-auto grid max-w-7xl gap-14 px-5 md:px-8 lg:grid-cols-[1fr_1fr] lg:gap-20">
         <div>
           <Reveal>
-            <Eyebrow>Admission</Eyebrow>
+            <Eyebrow>Admission open in Lucknow</Eyebrow>
             <Heading>Start your journey with us.</Heading>
           </Reveal>
 

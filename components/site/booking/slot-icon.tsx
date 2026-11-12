@@ -1,8 +1,9 @@
-import { Moon, Sun, Sunset } from "lucide-react";
+import { Moon, Sun, Sunrise, Sunset } from "lucide-react";
 import type { SlotId } from "@/lib/booking";
 
 const icons = {
-  morning: Sun,
+  morning: Sunrise,
+  afternoon: Sun,
   evening: Sunset,
   night: Moon,
 };

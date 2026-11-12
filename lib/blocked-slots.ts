@@ -2,7 +2,8 @@ import { slotKey, type SlotId } from "./booking";
 
 // Slots taken by the academy's own events. They show as Booked and can't be
 // bought online. A "morning shift" is the Morning slot and an "evening shift"
-// is the Evening slot. Night slots stay bookable.
+// is the Evening slot. Days with both shifts also block the Afternoon slot in
+// between, since the ground is in use all day. Night slots stay bookable.
 const events: { event: string; dates: string[]; slots: SlotId[] }[] = [
   {
     event: "CMP Tournament S7",
@@ -23,7 +24,7 @@ const events: { event: string; dates: string[]; slots: SlotId[] }[] = [
       "2026-12-27",
       "2027-01-03",
     ],
-    slots: ["morning", "evening"],
+    slots: ["morning", "afternoon", "evening"],
   },
   {
     event: "CCS Infratech Match",

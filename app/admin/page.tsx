@@ -5,6 +5,7 @@ import { formatDateTime } from "@/lib/admin-format";
 import { admissionStatuses, getAdmissionStats, searchAdmissions } from "@/lib/admissions";
 import { bookingReference, formatDate, formatRupees, indiaNow } from "@/lib/booking";
 import { getBookingStats, searchBookings } from "@/lib/db";
+import { isTestMode } from "@/lib/razorpay";
 import { AdminGate } from "./_components/gate";
 import { PageTitle, StatCard } from "./_components/ui";
 
@@ -24,6 +25,14 @@ async function Overview() {
       <p className="mt-2 text-muted-foreground">
         {formatDate(today, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
       </p>
+
+      {isTestMode() && (
+        <p className="mt-6 border-l-4 border-amber-500 bg-amber-100 p-4 text-sm text-amber-900">
+          <strong>Razorpay is in test mode.</strong> Payments are pretend and no
+          money is collected. Before going live, put your live keys
+          (rzp_live_…) in the hosting settings.
+        </p>
+      )}
 
       {bookings.refundsNeedingAction > 0 && (
         <Link

@@ -1,7 +1,7 @@
 import { Parallax } from "./reveal";
 import { CtaLink, Logo } from "./ui";
 
-const headline = ["Cricket coaching", "in Lucknow,", "taken seriously."];
+const headline = ["Cricket academy", "in Lucknow,", "taken seriously."];
 
 function Floodlight({ x, height }: { x: number; height: number }) {
   const top = 440 - height;

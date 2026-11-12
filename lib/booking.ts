@@ -6,7 +6,7 @@ export const MAX_BALLS = 20;
 export const BALL_PRICE = 400;
 export const UMPIRES_PRICE = 1400;
 
-export type SlotId = "morning" | "evening" | "night";
+export type SlotId = "morning" | "afternoon" | "evening" | "night";
 
 export type Slot = {
   id: SlotId;
@@ -17,27 +17,36 @@ export type Slot = {
   startsAt: number;
 };
 
-// The same 3 slots run every day. Only the rates differ at weekends.
+// The same 4 slots run every day. Only the rates differ at weekends.
 const daySlots = [
-  { id: "morning", name: "Morning", timing: "8:00 AM – 12:00 PM", startsAt: 480 },
-  { id: "evening", name: "Evening", timing: "3:00 PM – 7:30 PM", startsAt: 900 },
-  { id: "night", name: "Night", timing: "8:00 PM – 12:00 AM", startsAt: 1200 },
+  { id: "morning", name: "Morning", timing: "7:30 AM – 11:30 AM", startsAt: 450 },
+  { id: "afternoon", name: "Afternoon", timing: "12:00 PM – 3:30 PM", startsAt: 720 },
+  { id: "evening", name: "Evening", timing: "4:00 PM – 7:30 PM", startsAt: 960 },
+  { id: "night", name: "Night", timing: "8:00 PM – 11:30 PM", startsAt: 1200 },
 ] as const;
 
 const withRates = (rates: Record<SlotId, number>): Slot[] =>
   daySlots.map((slot) => ({ ...slot, rate: rates[slot.id] }));
 
+// Morning and afternoon cost the same.
 export const weekdaySlots = withRates({
   morning: 5000,
+  afternoon: 5000,
   evening: 12500,
   night: 13000,
 });
 
 export const weekendSlots = withRates({
   morning: 8000,
+  afternoon: 8000,
   evening: 12500,
   night: 15000,
 });
+
+// Every slot in a day, in order, as words. Used in policies and FAQs.
+export const slotSummary = daySlots
+  .map((slot) => `${slot.name} ${slot.timing}`)
+  .join(", ");
 
 const toUtc = (date: string) => new Date(`${date}T00:00:00Z`);
 

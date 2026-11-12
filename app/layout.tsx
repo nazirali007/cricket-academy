@@ -3,9 +3,17 @@ import { Barlow_Condensed, Manrope } from "next/font/google";
 import { Footer } from "@/components/site/footer";
 import { Navbar } from "@/components/site/navbar";
 import { MotionProvider } from "@/components/site/reveal";
+import { programs } from "@/lib/content";
 import { carouselPhotos } from "@/lib/gallery";
 import { homeShareDescription, homeTitle, sharedOpenGraph } from "@/lib/seo";
-import { bookingPhone, businessId, contact, mapsUrl, siteUrl } from "@/lib/site";
+import {
+  bookingPhone,
+  businessId,
+  contact,
+  mapsUrl,
+  siteUrl,
+  stadiumPagePath,
+} from "@/lib/site";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -30,17 +38,33 @@ export const metadata: Metadata = {
   },
   description,
   keywords: [
+    "cricket academy in lucknow",
+    "lucknow cricket academy",
     "best cricket academy in lucknow",
-    "best academy in lucknow",
-    "best cricket academy lko",
-    "cricket coaching lucknow",
+    "top cricket academy in lucknow",
+    "cricket academy lucknow fees",
+    "cricket academy lucknow admission",
+    "cricket coaching in lucknow",
+    "cricket coaching classes lucknow",
+    "cricket training lucknow",
+    "cricket coach lucknow",
+    "cricket academy for kids lucknow",
+    "cricket coaching for adults lucknow",
     "cricket academy near me",
+    "cricket academy chinhat",
     "cricket academy chinhat lucknow",
+    "cricket academy satrikh road",
+    "best cricket academy lko",
+    "cricket academy in uttar pradesh",
     "cricket stadium in lucknow",
     "best cricket stadium in lucknow",
     "affordable cricket stadium lucknow",
+    "cricket ground in lucknow",
     "cricket ground booking lucknow",
+    "cricket ground on rent lucknow",
+    "corporate cricket match ground lucknow",
     "CCS Cricket Academy",
+    "CCS Academy Lucknow",
   ],
   openGraph: {
     ...sharedOpenGraph,
@@ -53,10 +77,10 @@ export const metadata: Metadata = {
 
 const jsonLd = {
   "@context": "https://schema.org",
-  "@type": "SportsActivityLocation",
+  "@type": ["SportsActivityLocation", "SportsOrganization"],
   "@id": businessId,
   name: "CCS Cricket Academy",
-  alternateName: "CCS Academy",
+  alternateName: ["CCS Academy", "CCS Cricket Academy Lucknow"],
   description,
   foundingDate: "2026",
   url: siteUrl,
@@ -79,6 +103,29 @@ const jsonLd = {
     addressCountry: "IN",
   },
   areaServed: { "@type": "City", name: "Lucknow" },
+  knowsAbout: ["Cricket coaching", "Cricket training", "Cricket ground booking"],
+  hasOfferCatalog: {
+    "@type": "OfferCatalog",
+    name: "Cricket coaching and ground booking",
+    itemListElement: [
+      ...programs.map((program) => ({
+        "@type": "Offer",
+        itemOffered: {
+          "@type": "Service",
+          name: `Cricket coaching for ${program.title.toLowerCase()} in Lucknow`,
+          description: program.text,
+        },
+      })),
+      {
+        "@type": "Offer",
+        url: `${siteUrl}${stadiumPagePath}`,
+        itemOffered: {
+          "@type": "Service",
+          name: "Cricket stadium booking in Lucknow",
+        },
+      },
+    ],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

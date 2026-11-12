@@ -2,13 +2,13 @@ import { CurvedReel } from "./gallery/curved-reel";
 import { Reveal } from "./reveal";
 import { Eyebrow, Heading } from "./ui";
 
-// The curved auto-carousel of team photos, right after "Members".
+// The curved auto-carousel of team photos, right after "About".
 export function Teams() {
   return (
     <section
       id="teams"
       aria-labelledby="teams-heading"
-      className="overflow-hidden bg-cream pt-24 pb-16 md:pt-36 md:pb-24"
+      className="overflow-hidden bg-mist pt-24 pb-16 md:pt-36 md:pb-24"
     >
       <div className="mx-auto max-w-7xl px-5 md:px-8">
         <Reveal className="flex flex-wrap items-end justify-between gap-6">

@@ -14,9 +14,10 @@ export function About() {
           </Reveal>
           <Reveal delay={0.1}>
             <p className="text-lg leading-relaxed text-muted-foreground">
-              CCS Cricket Academy, established in 2026, is dedicated to
-              developing young and aspiring cricketers through professional
-              training, discipline, and a strong foundation in the game. Our
+              CCS Cricket Academy, established in 2026 at Chinhat, Lucknow, is
+              dedicated to developing young and aspiring cricketers through
+              professional cricket coaching, discipline, and a strong
+              foundation in the game. Our
               mission is to nurture talent and help players reach their full
               potential with the right guidance and support.
             </p>

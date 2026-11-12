@@ -9,6 +9,10 @@ export const isPaymentConfigured = () =>
 
 export const publicKeyId = () => process.env.RAZORPAY_KEY_ID ?? "";
 
+// Test keys never move real money, so bookings paid with them are not real.
+export const isTestMode = () =>
+  (process.env.RAZORPAY_KEY_ID ?? "").startsWith("rzp_test_");
+
 export const ORDER_ID = /^order_[A-Za-z0-9]{6,40}$/;
 export const PAYMENT_ID = /^pay_[A-Za-z0-9]{6,40}$/;
 
@@ -26,7 +30,14 @@ async function api<T>(path: string, body?: object): Promise<T> {
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) {
-    throw new Error(`Razorpay ${path} failed: ${response.status} ${await response.text()}`);
+    const detail = await response.text();
+    if (response.status === 401) {
+      // The keys are wrong, revoked, or test and live keys are mixed up.
+      throw new Error(
+        "Razorpay rejected the API keys. Check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.",
+      );
+    }
+    throw new Error(`Razorpay ${path} failed: ${response.status} ${detail}`);
   }
   return response.json() as Promise<T>;
 }
@@ -39,12 +50,16 @@ export type RazorpayPayment = {
   status: "created" | "authorized" | "captured" | "refunded" | "failed";
 };
 
-export const createOrder = (amountPaise: number, receipt: string, bookingId: number) =>
+export const createOrder = (
+  amountPaise: number,
+  receipt: string,
+  notes: Record<string, string>,
+) =>
   api<{ id: string; amount: number }>("/orders", {
     amount: amountPaise,
     currency: "INR",
     receipt,
-    notes: { booking_id: String(bookingId) },
+    notes,
   });
 
 export const fetchPayment = (paymentId: string) =>

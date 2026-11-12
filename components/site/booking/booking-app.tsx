@@ -45,6 +45,7 @@ type Availability = {
   maxDate: string;
   online: boolean;
   demo: boolean;
+  testCheckout?: boolean;
   unavailable: { date: string; slotId: string }[];
 };
 
@@ -65,9 +66,18 @@ type Outcome = {
   total: number;
 };
 
+type CheckoutResult = {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+};
+
 type RazorpayInstance = {
   open: () => void;
-  on: (event: string, callback: () => void) => void;
+  on: (
+    event: "payment.failed",
+    callback: (response: { error?: { description?: string } }) => void,
+  ) => void;
 };
 
 declare global {
@@ -195,6 +205,7 @@ export function BookingApp() {
   const phaseRef = useRef<Phase>("select");
   const settled = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const slotsRef = useRef<HTMLHeadingElement>(null);
 
   const goTo = useCallback((next: Phase) => {
     phaseRef.current = next;
@@ -289,7 +300,7 @@ export function BookingApp() {
     );
   }
 
-  const { today, nowMinutes, maxDate, online, demo } = data;
+  const { today, nowMinutes, maxDate, online, demo, testCheckout = false } = data;
   const canBook = online || demo;
   const now = { today, minutes: nowMinutes };
   const taken = new Set([
@@ -331,6 +342,18 @@ export function BookingApp() {
   function chooseDate(next: string) {
     setChosenDate(next);
     setMonth(next.slice(0, 7));
+    // Bring that day's slots into view, after React has drawn them. Skipped
+    // when they're already fully on screen, as on wide screens.
+    requestAnimationFrame(() => {
+      const heading = slotsRef.current;
+      if (!heading) return;
+      const list = document.getElementById("day-slots");
+      const top = heading.getBoundingClientRect().top;
+      const bottom = (list ?? heading).getBoundingClientRect().bottom;
+      if (top >= 80 && bottom <= window.innerHeight) return;
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      heading.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+    });
   }
 
   function toggleSlot(slot: Slot) {
@@ -450,22 +473,83 @@ export function BookingApp() {
     load();
   }
 
+  // Opens Razorpay's payment window. Used for live payments and, in test
+  // mode, for Razorpay's test checkout.
+  function openRazorpay(options: {
+    keyId: unknown;
+    amount: unknown;
+    orderId: unknown;
+    reference: string;
+    lineCount: number;
+    onDismiss: (failure: string | null) => void;
+    onSuccess: (result: CheckoutResult) => void;
+  }) {
+    if (!window.Razorpay) return;
+    // Razorpay shows a failed attempt inside its window and lets the customer
+    // try again there. If they give up, the reason is shown on the page.
+    let failure: string | null = null;
+    const checkout = new window.Razorpay({
+      key: options.keyId,
+      amount: options.amount,
+      currency: "INR",
+      order_id: options.orderId,
+      name: "CCS Cricket Academy",
+      description: `${options.lineCount} ground slot${options.lineCount === 1 ? "" : "s"} · ${options.reference}`,
+      image: `${window.location.origin}/logo.png`,
+      prefill: { name: details.name, email: details.email, contact: `+91${details.phone}` },
+      notes: { reference: options.reference },
+      theme: { color: "#071a2c" },
+      timeout: CHECKOUT_TIMEOUT_SECONDS,
+      retry: { enabled: true },
+      modal: {
+        confirm_close: true,
+        escape: false,
+        ondismiss: () => {
+          if (!settled.current) options.onDismiss(failure);
+        },
+      },
+      handler: options.onSuccess,
+    });
+    checkout.on("payment.failed", (response) => {
+      const reason = response.error?.description?.trim();
+      failure = reason ? (/[.!?]$/.test(reason) ? reason : `${reason}.`) : "The bank declined it.";
+    });
+    checkout.open();
+  }
+
+  const failedMessage = (failure: string, released: boolean) =>
+    `Payment failed: ${failure}${released ? " Your slots were released." : ""} You can try again or use another payment method. If money left your account, your bank returns it automatically.`;
+
   async function pay() {
     if (busy || items.length === 0) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     const snapshot = priceCart(items);
+    const customer = {
+      name: details.name,
+      phone: details.phone,
+      email: details.email,
+      organisation: details.organisation,
+    };
+    const cart = snapshot.lines.map(({ date, slotId, balls, umpires }) => ({
+      date,
+      slotId,
+      balls,
+      umpires,
+    }));
 
     if (demo) {
-      // Nothing is sent to the server or Razorpay in test mode.
+      // Nothing is saved in test mode.
       const clash = snapshot.lines.filter((l) => taken.has(slotKey(l.date, l.slotId)));
-      setBusy(false);
       if (clash.length) {
+        setBusy(false);
         setItems(items.filter((i) => !taken.has(slotKey(i.date, i.slotId))));
         setNotice(`Sorry, ${clash.map(lineLabel).join("; ")} is no longer available.`);
         return goTo("select");
       }
+      if (testCheckout) return payWithTestCheckout(snapshot, cart, customer);
+      setBusy(false);
       setDemoPayment({
         reference: `TEST-${String(Date.now()).slice(-5)}`,
         lines: snapshot.lines,
@@ -481,17 +565,9 @@ export function BookingApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: snapshot.lines.map(({ date, slotId, balls, umpires }) => ({
-            date,
-            slotId,
-            balls,
-            umpires,
-          })),
+          items: cart,
           expectedTotal: snapshot.total,
-          name: details.name,
-          phone: details.phone,
-          email: details.email,
-          organisation: details.organisation,
+          ...customer,
           website: (document.getElementById("booking-website") as HTMLInputElement | null)?.value ?? "",
         }),
       });
@@ -537,42 +613,111 @@ export function BookingApp() {
     goTo("paying");
     setBusy(false);
 
-    const checkout = new window.Razorpay({
-      key: body.keyId,
+    openRazorpay({
+      keyId: body.keyId,
       amount: body.amount,
-      currency: "INR",
-      order_id: body.orderId,
-      name: "CCS Cricket Academy",
-      description: `${snapshot.lines.length} ground slot${snapshot.lines.length === 1 ? "" : "s"} · ${reference}`,
-      image: `${window.location.origin}/logo.png`,
-      prefill: { name: details.name, contact: `+91${details.phone}` },
-      notes: { reference },
-      theme: { color: "#071a2c" },
-      timeout: CHECKOUT_TIMEOUT_SECONDS,
-      retry: { enabled: true },
-      modal: {
-        confirm_close: true,
-        escape: false,
-        ondismiss: async () => {
-          if (settled.current) return;
-          await release(token);
-          goTo("review");
-          setError("Payment wasn't completed, so your slots were released. You can try again.");
-          load();
-        },
+      orderId: body.orderId,
+      reference,
+      lineCount: snapshot.lines.length,
+      onDismiss: async (failure) => {
+        await release(token);
+        goTo("review");
+        setError(
+          failure
+            ? failedMessage(failure, true)
+            : "Payment wasn't completed, so your slots were released. You can try again.",
+        );
+        load();
       },
-      handler: (result: {
-        razorpay_order_id: string;
-        razorpay_payment_id: string;
-        razorpay_signature: string;
-      }) => confirmPayment(token, reference, snapshot, result),
+      onSuccess: (result) => confirmPayment(token, reference, snapshot, result),
     });
-    checkout.open();
   }
 
-  function finishDemoPayment() {
-    if (!demoPayment) return;
-    const { reference, lines, total } = demoPayment;
+  // Test mode with Razorpay test keys: a real Razorpay test order and checkout,
+  // checked on the server, but nothing is saved.
+  async function payWithTestCheckout(
+    snapshot: ReturnType<typeof priceCart>,
+    cart: CartItem[],
+    customer: Details,
+  ) {
+    let response: Response;
+    let body: Record<string, unknown>;
+    try {
+      response = await fetch("/api/demo/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: cart, expectedTotal: snapshot.total, ...customer }),
+      });
+      body = await response.json().catch(() => ({}));
+    } catch {
+      setBusy(false);
+      return setError("Please check your internet connection and try again.");
+    }
+    if (!response.ok) {
+      setBusy(false);
+      if (body.code === "price_changed") {
+        return setError("Our rates have been updated. Please refresh the page to see the new prices.");
+      }
+      return setError(typeof body.error === "string" ? body.error : "Something went wrong. Please try again.");
+    }
+
+    const reference = String(body.reference);
+    if (!(await loadCheckout()) || !window.Razorpay) {
+      setBusy(false);
+      return setError(
+        "We couldn't open the payment window. Please check your connection, turn off any ad blocker for this site, and try again.",
+      );
+    }
+
+    settled.current = false;
+    setHoldUntil(null);
+    goTo("paying");
+    setBusy(false);
+
+    openRazorpay({
+      keyId: body.keyId,
+      amount: body.amount,
+      orderId: body.orderId,
+      reference,
+      lineCount: snapshot.lines.length,
+      onDismiss: (failure) => {
+        goTo("review");
+        setError(failure ? failedMessage(failure, false) : "Payment wasn't completed. You can try again.");
+      },
+      onSuccess: async (result) => {
+        settled.current = true;
+        goTo("confirming");
+        let message = "We couldn't confirm this test payment. Please try again.";
+        try {
+          const check = await fetch("/api/demo/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              orderId: result.razorpay_order_id,
+              paymentId: result.razorpay_payment_id,
+              signature: result.razorpay_signature,
+            }),
+          });
+          const verdict = await check.json().catch(() => ({}));
+          if (check.ok && verdict.status === "confirmed") {
+            return finishDemoPayment({
+              reference,
+              lines: snapshot.lines,
+              total: snapshot.total,
+            });
+          }
+          if (typeof verdict.error === "string") message = verdict.error;
+        } catch {
+          message = "Please check your internet connection and try again.";
+        }
+        goTo("review");
+        setError(message);
+      },
+    });
+  }
+
+  function finishDemoPayment(payment: { reference: string; lines: PricedLine[]; total: number }) {
+    const { reference, lines, total } = payment;
     setDemoBooked((booked) => [
       ...booked,
       ...lines.map((l) => slotKey(l.date, l.slotId)),
@@ -625,6 +770,8 @@ export function BookingApp() {
           <p role="status" className="mb-6 border-2 border-amber-400 bg-amber-400/15 p-4">
             <strong className="text-amber-300">Test mode.</strong> Try the whole
             booking and payment flow. Nothing is saved and no money is taken.
+            {testCheckout &&
+              " Payments open Razorpay's real test checkout, so pay with Razorpay's test card or UPI details."}{" "}
             Refresh the page to clear your test bookings.
           </p>
         )}
@@ -679,7 +826,10 @@ export function BookingApp() {
           />
         </div>
 
-        <h3 className="mt-10 font-display text-3xl font-bold uppercase">
+        <h3
+          ref={slotsRef}
+          className="mt-10 scroll-mt-24 font-display text-3xl font-bold uppercase"
+        >
           Slots on {formatDate(date, { weekday: "long", day: "numeric", month: "long" })}
         </h3>
         <p className="mt-1 text-white/75">
@@ -692,6 +842,7 @@ export function BookingApp() {
 
         <motion.ul
           key={date}
+          id="day-slots"
           className="mt-5 grid gap-3 sm:grid-cols-2"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1251,7 +1402,7 @@ export function BookingApp() {
           reference={demoPayment.reference}
           name={details.name}
           phone={details.phone}
-          onSuccess={finishDemoPayment}
+          onSuccess={() => demoPayment && finishDemoPayment(demoPayment)}
           onClose={cancelDemoPayment}
         />
       )}

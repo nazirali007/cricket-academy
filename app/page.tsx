@@ -7,7 +7,6 @@ import { Facilities } from "@/components/site/facilities";
 import { Gallery } from "@/components/site/gallery";
 import { Hero } from "@/components/site/hero";
 import { MatchDay } from "@/components/site/match-day";
-import { Members } from "@/components/site/members";
 import { Teams } from "@/components/site/teams";
 import { Ticker } from "@/components/site/ticker";
 import { homeShareDescription, homeTitle, sharedOpenGraph } from "@/lib/seo";
@@ -28,7 +27,6 @@ export default function Home() {
       <Hero />
       <Ticker />
       <About />
-      <Members />
       <Teams />
       <Facilities />
       <BookSlot showPageLink />

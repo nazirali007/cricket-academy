@@ -1,7 +1,7 @@
 // Every photo on the site, split by the section that shows it. Each photo
 // appears in exactly one place, and its file lives in the matching folder:
 //
-//   /public/photos/auto-carousel/  curved band of team photos, after "Members"
+//   /public/photos/auto-carousel/  curved band of team photos, after "About"  
 //   /public/photos/carousel/       match-day slideshow, after "Book a slot"
 //   /public/photos/gallery/        the main gallery grid
 //

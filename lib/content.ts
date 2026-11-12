@@ -3,7 +3,6 @@
 export const navLinks = [
   { id: "home", label: "Home" },
   { id: "about", label: "About Us" },
-  { id: "members", label: "Members" },
   { id: "facilities", label: "Facilities" },
   { id: "book", label: "Book a Slot" },
   { id: "admission", label: "Admission" },
@@ -33,18 +32,6 @@ export const pillars = [
     title: "Real match practice",
     text: "Playing in match conditions tests skills under pressure and builds game awareness.",
   },
-];
-
-// Set `photo` to a file in /public, for example "/members/head-coach.jpg".
-export const members: {
-  name: string;
-  role: string;
-  photo?: string;
-}[] = [
-  { name: "Name to be added", role: "Head Coach" },
-  { name: "Name to be added", role: "Batting Coach" },
-  { name: "Name to be added", role: "Bowling Coach" },
-  { name: "Name to be added", role: "Fitness Trainer" },
 ];
 
 export const facilities = [
