@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { connection } from "next/server";
 import { Suspense } from "react";
-import { isAdmin } from "@/lib/admin-auth";
+import { bookingPresets, parseBookingFilters } from "@/lib/admin-filters";
+import { formatDateTime } from "@/lib/admin-format";
 import { blockedSlots } from "@/lib/blocked-slots";
 import {
   bookingReference,
@@ -10,18 +10,13 @@ import {
   formatRupees,
   indiaNow,
 } from "@/lib/booking";
-import {
-  isDatabaseConfigured,
-  listBookingsForAdmin,
-  type BookingStatus,
-} from "@/lib/db";
-import { logOut } from "./actions";
-import { CancelButton, LoginForm, ResendInvoiceButton } from "./forms";
+import { bookingViews, searchBookings, type BookingStatus } from "@/lib/db";
+import { FilterBar, fieldWrap, selectClass } from "../_components/filters";
+import { AdminGate } from "../_components/gate";
+import { Badge, PageTitle } from "../_components/ui";
+import { CancelButton, ResendInvoiceButton } from "./forms";
 
-export const metadata: Metadata = {
-  title: "Bookings",
-  robots: { index: false, follow: false },
-};
+export const metadata: Metadata = { title: "Bookings" };
 
 const statusLabel: Record<BookingStatus, [string, string]> = {
   confirmed: ["Paid", "bg-emerald-100 text-emerald-800"],
@@ -30,52 +25,69 @@ const statusLabel: Record<BookingStatus, [string, string]> = {
   refunding: ["Refunding", "bg-amber-100 text-amber-800"],
   refunded: ["Refunded", "bg-slate-200 text-slate-700"],
   refund_failed: ["Refund failed: refund manually", "bg-red-100 text-red-800"],
-  expired: ["Expired", "bg-slate-200 text-slate-700"],
-  cancelled: ["Cancelled", "bg-slate-200 text-slate-700"],
+  expired: ["Abandoned", "bg-slate-200 text-slate-700"],
+  cancelled: ["Abandoned", "bg-slate-200 text-slate-700"],
   cancelled_by_admin: ["Cancelled", "bg-slate-200 text-slate-700"],
 };
 
 const shortDate = (date: string) =>
   formatDate(date, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 
-async function Bookings() {
-  // Environment variables must be read per request, not baked in at build time.
-  await connection();
-
-  if (!process.env.ADMIN_PASSWORD) {
-    return (
-      <p className="mt-8">
-        Admin access is turned off until ADMIN_PASSWORD is set on the server.
-      </p>
-    );
-  }
-  if (!(await isAdmin())) return <LoginForm />;
-  if (!isDatabaseConfigured()) {
-    return <p className="mt-8">The booking database isn&apos;t connected yet.</p>;
-  }
-
-  const bookings = await listBookingsForAdmin();
+async function Bookings({ searchParams }: { searchParams: PageProps<"/admin/bookings">["searchParams"] }) {
   const { today } = indiaNow();
+  const filters = parseBookingFilters(await searchParams, today);
+  const bookings = await searchBookings(filters.search);
+  const paid = bookings.filter((b) => b.status === "confirmed");
+  const paidTotal = paid.reduce((sum, b) => sum + b.total, 0);
+  const slotCount = paid.reduce((sum, b) => sum + b.lines.length, 0);
   const events = blockedSlots.filter((b) => b.date >= today);
 
   return (
     <>
-      <div className="mt-6 flex items-center justify-between gap-4">
-        <p className="font-semibold">
-          {bookings.length} recent {bookings.length === 1 ? "booking" : "bookings"}
-        </p>
-        <form action={logOut}>
-          <button type="submit" className="text-sm font-bold underline">
-            Sign out
-          </button>
-        </form>
-      </div>
+      <FilterBar
+        path="/admin/bookings"
+        exportPath="/admin/bookings/export"
+        presets={bookingPresets}
+        when={filters.when}
+        keep={{ view: filters.view }}
+        query={filters.query}
+        from={filters.from}
+        to={filters.to}
+        dateLabel="Match date"
+        searchPlaceholder="Name, phone, email, CCS-00042, payment ID"
+      >
+        <label className={fieldWrap}>
+          Show
+          <select name="view" defaultValue={filters.view} className={selectClass}>
+            {Object.entries(bookingViews).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </FilterBar>
 
-      <div className="mt-6 overflow-x-auto bg-white">
-        <table className="w-full min-w-[60rem] border-collapse text-left text-sm">
+      <p className="mt-6 font-semibold">
+        {bookings.length} {bookings.length === 1 ? "booking" : "bookings"}
+        {paid.length > 0 && (
+          <span className="font-normal text-muted-foreground">
+            {" "}· {paid.length} paid, {slotCount} {slotCount === 1 ? "slot" : "slots"},{" "}
+            {formatRupees(paidTotal)} collected
+          </span>
+        )}
+        {bookings.length === 500 && (
+          <span className="block text-sm font-normal text-muted-foreground">
+            Showing the newest 500. Narrow the dates or search to see older ones.
+          </span>
+        )}
+      </p>
+
+      <div className="mt-4 overflow-x-auto bg-white">
+        <table className="w-full min-w-[64rem] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-navy/20">
-              {["Reference", "Status", "Slots", "Customer", "Total", ""].map(
+              {["Reference", "Status", "Match slots", "Booked by", "Total", ""].map(
                 (heading) => (
                   <th key={heading} scope="col" className="p-3 font-bold">
                     {heading}
@@ -93,18 +105,24 @@ async function Bookings() {
                 : baseLabel;
               return (
                 <tr key={booking.id} className="border-b border-navy/10 align-top">
-                  <td className="p-3 font-bold">
-                    {reference}
+                  <td className="p-3">
+                    <span className="font-bold">{reference}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Booked {formatDateTime(booking.createdAt)}
+                    </span>
+                    {booking.paidAt && (
+                      <span className="block text-xs text-muted-foreground">
+                        Paid {formatDateTime(booking.paidAt)}
+                      </span>
+                    )}
                     {booking.paymentId && (
-                      <span className="block font-normal text-muted-foreground">
+                      <span className="block text-xs break-all text-muted-foreground">
                         {booking.paymentId}
                       </span>
                     )}
                   </td>
                   <td className="p-3">
-                    <span className={`inline-block px-2 py-1 text-xs font-bold ${style}`}>
-                      {label}
-                    </span>
+                    <Badge className={style}>{label}</Badge>
                     {booking.status === "confirmed" && (
                       <div className="mt-2 space-y-1 text-xs">
                         <p className={booking.invoiceSentAt ? "text-emerald-700" : "text-red-700"}>
@@ -118,8 +136,10 @@ async function Bookings() {
                     <ul className="space-y-1">
                       {booking.lines.map((line) => (
                         <li key={`${line.date}${line.slotId}`}>
-                          <span className="font-semibold">{shortDate(line.date)}</span>,{" "}
-                          {line.slotName} ({line.timing})
+                          <span className={`font-semibold ${line.date === today ? "text-ball" : ""}`}>
+                            {line.date === today ? "Today" : shortDate(line.date)}
+                          </span>
+                          , {line.slotName} ({line.timing})
                           {(line.balls > 0 || line.umpires) && (
                             <span className="text-muted-foreground">
                               {" "}
@@ -131,7 +151,7 @@ async function Bookings() {
                     </ul>
                   </td>
                   <td className="p-3">
-                    {booking.name}
+                    <span className="font-semibold">{booking.name}</span>
                     <a href={`tel:+91${booking.phone}`} className="block underline">
                       {booking.phone}
                     </a>
@@ -141,12 +161,10 @@ async function Bookings() {
                       </a>
                     )}
                     {booking.organisation && (
-                      <span className="block text-muted-foreground">
-                        {booking.organisation}
-                      </span>
+                      <span className="block text-muted-foreground">{booking.organisation}</span>
                     )}
                   </td>
-                  <td className="p-3 font-bold">{formatRupees(booking.total)}</td>
+                  <td className="p-3 font-bold whitespace-nowrap">{formatRupees(booking.total)}</td>
                   <td className="p-3">
                     {(booking.status === "confirmed" || booking.status === "pending") && (
                       <CancelButton
@@ -162,7 +180,7 @@ async function Bookings() {
             {bookings.length === 0 && (
               <tr>
                 <td colSpan={6} className="p-6 text-center">
-                  No bookings yet.
+                  No bookings match these filters.
                 </td>
               </tr>
             )}
@@ -183,26 +201,21 @@ async function Bookings() {
             {findSlot(event.date, event.slotId)?.name}: {event.event}
           </li>
         ))}
+        {events.length === 0 && <li className="text-muted-foreground">None coming up.</li>}
       </ul>
     </>
   );
 }
 
-export default function AdminBookingsPage() {
+export default function AdminBookingsPage({ searchParams }: PageProps<"/admin/bookings">) {
   return (
     <>
-      <div className="bg-navy pt-32 pb-10 text-white">
-        <h1 className="mx-auto max-w-7xl px-5 font-display text-5xl font-bold uppercase md:px-8">
-          Ground bookings
-        </h1>
-      </div>
-      <section className="min-h-[60svh] bg-cream pb-20">
-        <div className="mx-auto max-w-7xl px-5 pt-2 md:px-8">
-          <Suspense fallback={<p className="mt-8">Loading…</p>}>
-            <Bookings />
-          </Suspense>
-        </div>
-      </section>
+      <PageTitle>Ground bookings</PageTitle>
+      <Suspense fallback={<p className="mt-8">Loading…</p>}>
+        <AdminGate>
+          <Bookings searchParams={searchParams} />
+        </AdminGate>
+      </Suspense>
     </>
   );
 }

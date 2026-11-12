@@ -39,6 +39,23 @@ const schema = `
     ADD COLUMN IF NOT EXISTS cancelled_by_academy BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS customer_email TEXT,
     ADD COLUMN IF NOT EXISTS invoice_sent_at TIMESTAMPTZ;
+
+  -- Admission requests from the Join form. "status" tracks follow-up:
+  -- new, contacted, joined (now a student) or not_interested.
+  CREATE TABLE IF NOT EXISTS admissions (
+    id SERIAL PRIMARY KEY,
+    player_name TEXT NOT NULL,
+    age INTEGER NOT NULL,
+    phone TEXT NOT NULL,
+    program TEXT NOT NULL,
+    message TEXT,
+    status TEXT NOT NULL DEFAULT 'new',
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS admissions_created ON admissions (created_at);
+  CREATE INDEX IF NOT EXISTS admissions_phone ON admissions (phone, created_at);
 `;
 
 let pool: Pool | undefined;
@@ -46,7 +63,7 @@ let ready: Promise<unknown> | undefined;
 
 export const isDatabaseConfigured = () => Boolean(process.env.DATABASE_URL);
 
-async function database() {
+export async function database() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
   pool ??= new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
   // Creates the tables the first time the site connects.
@@ -58,7 +75,7 @@ async function database() {
   return pool;
 }
 
-async function transaction<T>(work: (client: PoolClient) => Promise<T>) {
+export async function transaction<T>(work: (client: PoolClient) => Promise<T>) {
   const client = await (await database()).connect();
   try {
     await client.query("BEGIN");
@@ -317,17 +334,6 @@ export async function recordRefund(
   return rows[0];
 }
 
-export async function listBookingsForAdmin() {
-  const db = await database();
-  const { rows } = await db.query<BookingRecord>(
-    `SELECT ${columns} FROM ground_bookings
-     WHERE status IN ('confirmed', 'refund_pending', 'refunding', 'refunded', 'refund_failed')
-        OR (status = 'pending' AND expires_at > NOW())
-     ORDER BY created_at DESC LIMIT 300`,
-  );
-  return rows;
-}
-
 // Frees the booking's slots. A paid booking is marked for a full refund,
 // because the refund policy promises one when the academy cancels.
 export async function cancelBookingAsAdmin(bookingId: number) {
@@ -363,4 +369,135 @@ export async function getBookingById(bookingId: number) {
     [bookingId],
   );
   return rows[0] ?? null;
+}
+
+// ── Admin: search and totals ─────────────────────────────────────────────
+
+// Which bookings the admin list shows. "active" is the default view: paid
+// bookings, refunds and customers paying right now.
+export const bookingViews = {
+  active: "Paid & in progress",
+  paid: "Paid",
+  refunds: "Refunds",
+  cancelled: "Cancelled by academy",
+  abandoned: "Abandoned checkouts",
+  all: "Everything",
+} as const;
+export type BookingView = keyof typeof bookingViews;
+
+const viewCondition: Record<BookingView, string> = {
+  active: `(status IN ('confirmed', 'refund_pending', 'refunding', 'refunded', 'refund_failed')
+            OR (status = 'pending' AND expires_at > NOW()))`,
+  paid: "status = 'confirmed'",
+  refunds: "status IN ('refund_pending', 'refunding', 'refunded', 'refund_failed')",
+  cancelled: "(status = 'cancelled_by_admin' OR cancelled_by_academy)",
+  abandoned:
+    "(status IN ('expired', 'cancelled') OR (status = 'pending' AND expires_at <= NOW()))",
+  all: "TRUE",
+};
+
+export type DateRange = { from: string; to: string };
+
+export type BookingSearch = {
+  view: BookingView;
+  // Inclusive YYYY-MM-DD range, on the match date or the day it was booked.
+  range: (DateRange & { on: "match" | "booked" }) | null;
+  query: string;
+};
+
+// The calendar day a timestamp falls on in India, where the academy is.
+export const indiaDay = (column: string) =>
+  `(${column} AT TIME ZONE 'Asia/Kolkata')::date`;
+
+// Escapes a search term for ILIKE.
+export const likePattern = (text: string) =>
+  `%${text.replace(/[\\%_]/g, "\\$&")}%`;
+
+export async function searchBookings(search: BookingSearch, limit = 500) {
+  const db = await database();
+  const where = [viewCondition[search.view]];
+  const values: unknown[] = [];
+  const param = (value: unknown) => {
+    values.push(value);
+    return `$${values.length}`;
+  };
+
+  if (search.range) {
+    const from = param(search.range.from);
+    const to = param(search.range.to);
+    where.push(
+      search.range.on === "match"
+        ? `EXISTS (SELECT 1 FROM jsonb_array_elements(lines) AS l
+                   WHERE (l->>'date')::date BETWEEN ${from}::date AND ${to}::date)`
+        : `${indiaDay("created_at")} BETWEEN ${from}::date AND ${to}::date`,
+    );
+  }
+
+  const query = search.query.trim();
+  if (query) {
+    const like = param(likePattern(query));
+    const conditions = [
+      `customer_name ILIKE ${like}`,
+      `customer_email ILIKE ${like}`,
+      `organisation ILIKE ${like}`,
+      `razorpay_payment_id ILIKE ${like}`,
+    ];
+    const digits = query.replace(/\D/g, "");
+    if (digits.length >= 4) {
+      conditions.push(`phone LIKE ${param(`%${digits.slice(-10)}%`)}`);
+    }
+    // A booking reference such as CCS-00042.
+    const reference = /^(?:ccs-?)?0*(\d{1,9})$/i.exec(query);
+    if (reference) conditions.push(`id = ${param(Number(reference[1]))}`);
+    where.push(`(${conditions.join(" OR ")})`);
+  }
+
+  const { rows } = await db.query<BookingRecord>(
+    `SELECT ${columns} FROM ground_bookings
+     WHERE ${where.join(" AND ")}
+     ORDER BY created_at DESC LIMIT ${param(limit)}`,
+    values,
+  );
+  return rows;
+}
+
+export type BookingStats = {
+  paidBookings: number;
+  matchesToday: number;
+  bookedToday: number;
+  collectedToday: number;
+  collectedThisMonth: number;
+  collectedAllTime: number;
+  refundsNeedingAction: number;
+};
+
+// Money counts only bookings that are paid and not refunded. `today` is the
+// India date, YYYY-MM-DD.
+export async function getBookingStats(today: string): Promise<BookingStats> {
+  const db = await database();
+  const paidDay = indiaDay("paid_at");
+  const { rows } = await db.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'confirmed') AS "paidBookings",
+       COUNT(*) FILTER (WHERE status = 'confirmed' AND EXISTS (
+         SELECT 1 FROM jsonb_array_elements(lines) AS l
+         WHERE (l->>'date')::date = $1::date
+       )) AS "matchesToday",
+       COUNT(*) FILTER (WHERE status = 'confirmed'
+         AND ${indiaDay("created_at")} = $1::date) AS "bookedToday",
+       COALESCE(SUM(total_rupees) FILTER (WHERE status = 'confirmed'
+         AND ${paidDay} = $1::date), 0) AS "collectedToday",
+       COALESCE(SUM(total_rupees) FILTER (WHERE status = 'confirmed'
+         AND date_trunc('month', ${paidDay}) = date_trunc('month', $1::date)), 0)
+         AS "collectedThisMonth",
+       COALESCE(SUM(total_rupees) FILTER (WHERE status = 'confirmed'), 0)
+         AS "collectedAllTime",
+       COUNT(*) FILTER (WHERE status IN ('refund_pending', 'refund_failed'))
+         AS "refundsNeedingAction"
+     FROM ground_bookings`,
+    [today],
+  );
+  return Object.fromEntries(
+    Object.entries(rows[0]).map(([key, value]) => [key, Number(value)]),
+  ) as BookingStats;
 }

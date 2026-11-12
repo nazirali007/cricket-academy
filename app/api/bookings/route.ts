@@ -20,26 +20,14 @@ import {
   setOrderId,
 } from "@/lib/db";
 import { createOrder, isPaymentConfigured, publicKeyId } from "@/lib/razorpay";
+import { cleanText, normalisePhone } from "@/lib/form-input";
 
 const MAX_HOLDS_PER_PHONE_PER_HOUR = 6;
 
 const fail = (status: number, error: string, extra: object = {}) =>
   NextResponse.json({ error, ...extra }, { status });
 
-const text = (value: unknown, maxLength: number) =>
-  typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, maxLength) : "";
-
-// Accepts a 10-digit Indian mobile number, with or without +91 or a leading 0.
-function normalisePhone(value: unknown) {
-  const digits = text(value, 20).replace(/\D/g, "");
-  const local =
-    digits.length === 12 && digits.startsWith("91")
-      ? digits.slice(2)
-      : digits.length === 11 && digits.startsWith("0")
-        ? digits.slice(1)
-        : digits;
-  return /^[6-9]\d{9}$/.test(local) ? local : null;
-}
+const text = cleanText;
 
 function parseItems(value: unknown): CartItem[] | string {
   if (!Array.isArray(value) || value.length === 0) {
