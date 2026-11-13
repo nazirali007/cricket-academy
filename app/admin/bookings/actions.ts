@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { isAdmin } from "@/lib/admin-auth";
 import { cancelBookingAsAdmin, getBookingById, markInvoiceSent } from "@/lib/db";
 import { sendInvoice } from "@/lib/email";
-import { refundInFull } from "@/lib/payments";
+import { refundInFull, retryRefund as retry } from "@/lib/payments";
 
 export async function cancelBooking(form: FormData) {
   if (!(await isAdmin())) return;
@@ -12,6 +12,16 @@ export async function cancelBooking(form: FormData) {
   if (!Number.isInteger(id) || id <= 0) return;
   const booking = await cancelBookingAsAdmin(id);
   if (booking?.status === "refund_pending") await refundInFull(booking);
+  revalidatePath("/admin", "layout");
+}
+
+// Tries a failed refund again. Razorpay is asked first how much has already
+// gone back, so this can never refund the customer twice.
+export async function retryRefund(form: FormData) {
+  if (!(await isAdmin())) return;
+  const id = Number(form.get("id"));
+  if (!Number.isInteger(id) || id <= 0) return;
+  await retry(id);
   revalidatePath("/admin", "layout");
 }
 

@@ -20,7 +20,7 @@ const messages: Partial<Record<string, [string, string]>> = {
   refund_failed: ["Refund in progress", "A slot was no longer available when your payment arrived. Our team will refund you in full and contact you."],
   expired: ["Booking not completed", "The payment wasn't completed in time, so these slots were not booked and you have not been charged."],
   cancelled: ["Booking not completed", "The payment was cancelled, so these slots were not booked and you have not been charged."],
-  cancelled_by_admin: ["Booking cancelled", "This booking was cancelled by the academy. Please contact us about any refund."],
+  cancelled_by_admin: ["Booking cancelled", "The academy cancelled this booking before it was paid, so you have not been charged."],
 };
 
 async function Receipt({ params }: { params: Promise<{ token: string }> }) {

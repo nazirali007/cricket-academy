@@ -14,7 +14,7 @@ import { bookingViews, searchBookings, type BookingStatus } from "@/lib/db";
 import { FilterBar, fieldWrap, selectClass } from "../_components/filters";
 import { AdminGate } from "../_components/gate";
 import { Badge, PageTitle } from "../_components/ui";
-import { CancelButton, ResendInvoiceButton } from "./forms";
+import { CancelButton, ResendInvoiceButton, RetryRefundButton } from "./forms";
 
 export const metadata: Metadata = { title: "Bookings" };
 
@@ -24,7 +24,7 @@ const statusLabel: Record<BookingStatus, [string, string]> = {
   refund_pending: ["Refunding", "bg-amber-100 text-amber-800"],
   refunding: ["Refunding", "bg-amber-100 text-amber-800"],
   refunded: ["Refunded", "bg-slate-200 text-slate-700"],
-  refund_failed: ["Refund failed: refund manually", "bg-red-100 text-red-800"],
+  refund_failed: ["Refund failed", "bg-red-100 text-red-800"],
   expired: ["Abandoned", "bg-slate-200 text-slate-700"],
   cancelled: ["Abandoned", "bg-slate-200 text-slate-700"],
   cancelled_by_admin: ["Cancelled", "bg-slate-200 text-slate-700"],
@@ -131,6 +131,17 @@ async function Bookings({ searchParams }: { searchParams: PageProps<"/admin/book
                         <ResendInvoiceButton id={booking.id} />
                       </div>
                     )}
+                    {booking.refundId && (
+                      <p className="mt-2 text-xs break-all text-muted-foreground">
+                        Refund {booking.refundId}
+                      </p>
+                    )}
+                    {booking.status === "refund_failed" && (
+                      <p className="mt-2 max-w-56 text-xs text-red-800">
+                        Press Retry refund, or refund it in the Razorpay dashboard. This
+                        page updates by itself once Razorpay reports the refund.
+                      </p>
+                    )}
                   </td>
                   <td className="p-3">
                     <ul className="space-y-1">
@@ -172,6 +183,9 @@ async function Bookings({ searchParams }: { searchParams: PageProps<"/admin/book
                         label={reference}
                         paid={booking.status === "confirmed"}
                       />
+                    )}
+                    {(booking.status === "refund_failed" || booking.status === "refunding") && (
+                      <RetryRefundButton id={booking.id} label={reference} />
                     )}
                   </td>
                 </tr>

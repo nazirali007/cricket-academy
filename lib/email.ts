@@ -109,11 +109,11 @@ export const sendRefundAlert = (booking: BookingRecord) =>
     `${booking.status === "refunded" ? "Refunded" : "ACTION NEEDED: refund failed for"} booking ${bookingReference(booking.id)}`,
     [
       booking.cancelledByAcademy
-        ? "This paid booking was cancelled by the academy from the admin page, so it is refunded in full under the refund policy."
+        ? "This paid booking was cancelled by the academy, so it is refunded in full under the refund policy."
         : "A customer paid after their slot hold had expired, and someone else had booked one of the slots in the meantime.",
       booking.status === "refunded"
-        ? `The full amount was refunded automatically (refund ${booking.refundId}).`
-        : "The automatic refund FAILED. Please refund this payment from the Razorpay dashboard and contact the customer.",
+        ? `The full amount was refunded (Razorpay refund ${booking.refundId}).`
+        : "The refund FAILED. Press Retry refund on the admin Bookings page, or refund this payment from the Razorpay dashboard and contact the customer.",
       "",
       ...describe(booking),
     ],

@@ -64,6 +64,8 @@ type Outcome = {
   token: string;
   lines: PricedLine[];
   total: number;
+  // The academy cancelled the hold while the customer was paying.
+  cancelledByAcademy?: boolean;
 };
 
 type CheckoutResult = {
@@ -453,9 +455,14 @@ export function BookingApp() {
       try {
         const response = await fetch(`/api/bookings/status?token=${token}`, { cache: "no-store" });
         if (response.ok) {
-          const { status } = await response.json();
-          if (status === "confirmed" || status === "refunded" || status === "refund_failed") {
-            return setOutcome({ status, reference, token, ...snapshot });
+          const { status, cancelledByAcademy } = await response.json();
+          if (
+            status === "confirmed" ||
+            status === "refunded" ||
+            status === "refund_failed" ||
+            status === "refunding"
+          ) {
+            return setOutcome({ status, reference, token, cancelledByAcademy, ...snapshot });
           }
         }
       } catch {
@@ -488,7 +495,13 @@ export function BookingApp() {
       });
       const body = await result.json().catch(() => ({}));
       if (result.ok && body.status) {
-        setOutcome({ status: body.status, reference, token, ...snapshot });
+        setOutcome({
+          status: body.status,
+          reference,
+          token,
+          cancelledByAcademy: Boolean(body.cancelledByAcademy),
+          ...snapshot,
+        });
       } else {
         await checkStatus(token, reference, snapshot);
       }
@@ -1355,12 +1368,15 @@ export function BookingApp() {
               ) : (
                 <>
                   <h3 className="font-display text-4xl leading-none font-bold uppercase">
-                    Slot no longer available
+                    {outcome.cancelledByAcademy ? "Booking cancelled" : "Slot no longer available"}
                   </h3>
                   <p className="mt-2 text-muted-foreground">
+                    {outcome.cancelledByAcademy
+                      ? "The academy cancelled these slots while you were paying."
+                      : "Your payment arrived after your hold ended and someone else had booked a slot."}{" "}
                     {outcome.status === "refunded"
-                      ? "Your payment arrived after your hold ended and someone else had booked a slot. Your full payment has been refunded and should reach you in 5–7 working days."
-                      : `Your payment arrived after your hold ended and someone else had booked a slot. We're refunding your payment in full. If you have questions, call ${bookingPhone} with reference ${outcome.reference}.`}
+                      ? "Your full payment has been refunded and should reach you in 5–7 working days."
+                      : `We're refunding your payment in full. If you have questions, call ${bookingPhone} with reference ${outcome.reference}.`}
                   </p>
                 </>
               )}

@@ -10,7 +10,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     return NextResponse.json(
-      { status: booking.status },
+      {
+        status: booking.status === "refund_pending" ? "refunding" : booking.status,
+        cancelledByAcademy: booking.cancelledByAcademy,
+      },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch {

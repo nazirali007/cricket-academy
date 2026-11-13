@@ -16,11 +16,11 @@ export const mapsUrl =
 export const bookingPhone = "+91 7081885501";
 
 export const contact = {
-  phone: "",
+  phone: bookingPhone,
   whatsapp: "",
-  email: "contact@ccsacademylucknow.com",
+  email: "ccsacademylucknow@gmail.com",
   address:
     "Satrikh Road, Near Amor,\nOpp. Nayra Petrol Pump,\nChinhat, Lucknow-226028, (U.P.) India",
-  hours: "",
+  hours: "7:30 AM – 6:00 PM",
   city: "Lucknow, Uttar Pradesh",
 };

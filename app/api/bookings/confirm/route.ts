@@ -39,7 +39,10 @@ export async function POST(request: Request) {
     if (!("booking" in result)) {
       return fail(400, "We couldn't verify this payment.");
     }
-    return NextResponse.json({ status: result.status });
+    return NextResponse.json({
+      status: result.status,
+      cancelledByAcademy: result.booking.cancelledByAcademy,
+    });
   } catch (error) {
     console.error("Could not confirm payment", error);
     return fail(502, "We're still confirming your payment.");

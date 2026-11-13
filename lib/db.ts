@@ -5,7 +5,9 @@ import { HOLD_MINUTES, type PricedLine } from "./booking";
 // time out become "expired", and ones the customer abandons become
 // "cancelled". If money arrives for slots someone else has since taken, the
 // booking moves through "refund_pending" and "refunding" to "refunded" or
-// "refund_failed". "cancelled_by_admin" is set from the admin page.
+// "refund_failed". "cancelled_by_admin" is set from the admin page. A paid
+// booking the academy cancels is refunded the same way, with
+// cancelled_by_academy set.
 //
 // slot_locks has one row per held or booked slot. Its primary key is what
 // makes double booking impossible, even when two people pay at once.
@@ -38,7 +40,10 @@ const schema = `
   ALTER TABLE ground_bookings
     ADD COLUMN IF NOT EXISTS cancelled_by_academy BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS customer_email TEXT,
-    ADD COLUMN IF NOT EXISTS invoice_sent_at TIMESTAMPTZ;
+    ADD COLUMN IF NOT EXISTS invoice_sent_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS refund_attempted_at TIMESTAMPTZ;
+  CREATE INDEX IF NOT EXISTS ground_bookings_payment
+    ON ground_bookings (razorpay_payment_id);
 
   -- Admission requests from the Join form. "status" tracks follow-up:
   -- new, contacted, joined (now a student) or not_interested.
@@ -237,6 +242,15 @@ export async function getBookingByToken(token: string) {
   return rows[0] ?? null;
 }
 
+export async function getBookingByPaymentId(paymentId: string) {
+  const db = await database();
+  const { rows } = await db.query<BookingRecord>(
+    `SELECT ${columns} FROM ground_bookings WHERE razorpay_payment_id = $1`,
+    [paymentId],
+  );
+  return rows[0] ?? null;
+}
+
 export async function getBookingByOrderId(orderId: string) {
   const db = await database();
   const { rows } = await db.query<BookingRecord>(
@@ -274,6 +288,19 @@ export async function finalizePayment(orderId: string, paymentId: string) {
     );
     const booking = rows[0];
     if (!booking) return { outcome: "unknown" as const };
+
+    // The admin cancelled this hold while the customer was still paying. The
+    // slots are gone, so the money must go back in full.
+    if (booking.status === "cancelled_by_admin" && !booking.paymentId) {
+      const { rows: updated } = await client.query<BookingRecord>(
+        `UPDATE ground_bookings
+         SET status = 'refund_pending', cancelled_by_academy = TRUE,
+             razorpay_payment_id = $2, paid_at = NOW()
+         WHERE id = $1 RETURNING ${columns}`,
+        [booking.id, paymentId],
+      );
+      return { outcome: "updated" as const, booking: updated[0] };
+    }
     if (booking.status !== "pending" && booking.status !== "expired" && booking.status !== "cancelled") {
       return { outcome: "already" as const, booking };
     }
@@ -313,7 +340,7 @@ export async function finalizePayment(orderId: string, paymentId: string) {
 export async function claimRefund(bookingId: number) {
   const db = await database();
   const { rowCount } = await db.query(
-    `UPDATE ground_bookings SET status = 'refunding'
+    `UPDATE ground_bookings SET status = 'refunding', refund_attempted_at = NOW()
      WHERE id = $1 AND status = 'refund_pending'`,
     [bookingId],
   );
@@ -332,6 +359,44 @@ export async function recordRefund(
     [bookingId, status, refundId],
   );
   return rows[0];
+}
+
+// Lets the admin try a failed refund again. A refund still "refunding" can
+// only be retried after a few minutes, in case the first try is still running.
+export async function reopenRefund(bookingId: number) {
+  const db = await database();
+  const { rows } = await db.query<BookingRecord>(
+    `UPDATE ground_bookings SET status = 'refund_pending'
+     WHERE id = $1 AND razorpay_payment_id IS NOT NULL
+       AND (status = 'refund_failed'
+            OR (status = 'refunding'
+                AND (refund_attempted_at IS NULL
+                     OR refund_attempted_at < NOW() - INTERVAL '3 minutes')))
+     RETURNING ${columns}`,
+    [bookingId],
+  );
+  return rows[0] ?? null;
+}
+
+// Razorpay reports that a booking's payment was refunded in full, for example
+// from the Razorpay dashboard. The booking is closed and its slots go back on
+// sale, so the site never shows a booking as paid after its money went back.
+export async function markRefundedOutsideSite(bookingId: number, refundId: string) {
+  return transaction(async (client) => {
+    const { rows } = await client.query<BookingRecord>(
+      `UPDATE ground_bookings
+       SET status = 'refunded', refund_id = COALESCE(refund_id, $2),
+           cancelled_by_academy = cancelled_by_academy OR status = 'confirmed'
+       WHERE id = $1
+         AND status IN ('confirmed', 'refund_pending', 'refunding', 'refund_failed')
+       RETURNING ${columns}`,
+      [bookingId, refundId],
+    );
+    if (rows[0]) {
+      await client.query("DELETE FROM slot_locks WHERE booking_id = $1", [bookingId]);
+    }
+    return rows[0] ?? null;
+  });
 }
 
 // Frees the booking's slots. A paid booking is marked for a full refund,

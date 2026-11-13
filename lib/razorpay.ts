@@ -48,6 +48,15 @@ export type RazorpayPayment = {
   amount: number;
   currency: string;
   status: "created" | "authorized" | "captured" | "refunded" | "failed";
+  // Paise already given back, from this site or the Razorpay dashboard.
+  amount_refunded: number;
+};
+
+export type RazorpayRefund = {
+  id: string;
+  payment_id: string;
+  amount: number;
+  status: "pending" | "processed" | "failed";
 };
 
 export const createOrder = (
@@ -71,11 +80,21 @@ export const capturePayment = (paymentId: string, amountPaise: number) =>
     currency: "INR",
   });
 
-export const refundPayment = (paymentId: string, amountPaise: number) =>
-  api<{ id: string }>(`/payments/${paymentId}/refund`, {
+export const refundPayment = (
+  paymentId: string,
+  amountPaise: number,
+  reason: string,
+) =>
+  api<RazorpayRefund>(`/payments/${paymentId}/refund`, {
     amount: amountPaise,
-    notes: { reason: "Slot was no longer available when payment arrived" },
+    speed: "normal",
+    notes: { reason },
   });
+
+export const listRefunds = (paymentId: string) =>
+  api<{ items: RazorpayRefund[] }>(`/payments/${paymentId}/refunds`);
+
+export const REFUND_ID = /^rfnd_[A-Za-z0-9]{6,40}$/;
 
 function matches(expected: string, actual: string) {
   const a = Buffer.from(expected);
