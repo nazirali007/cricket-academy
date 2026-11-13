@@ -86,8 +86,34 @@ declare global {
   }
 }
 
+// Razorpay's window only shows a logo from an https:// address. On the live
+// site that's the logo's URL; when testing on http://localhost the image is
+// passed in directly instead.
+let checkoutLogo: Promise<string> | null = null;
+function loadCheckoutLogo() {
+  const url = `${window.location.origin}/logo-square.png`;
+  if (window.location.protocol === "https:") return Promise.resolve(url);
+  checkoutLogo ??= fetch(url)
+    .then((response) => (response.ok ? response.blob() : Promise.reject()))
+    .then(
+      (blob) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        }),
+    )
+    .catch(() => {
+      checkoutLogo = null;
+      return "";
+    });
+  return checkoutLogo;
+}
+
 let checkoutScript: Promise<boolean> | null = null;
 function loadCheckout() {
+  void loadCheckoutLogo(); // Fetched alongside the script, so it's ready.
   if (window.Razorpay) return Promise.resolve(true);
   checkoutScript ??= new Promise((resolve) => {
     const script = document.createElement("script");
@@ -475,7 +501,7 @@ export function BookingApp() {
 
   // Opens Razorpay's payment window. Used for live payments and, in test
   // mode, for Razorpay's test checkout.
-  function openRazorpay(options: {
+  async function openRazorpay(options: {
     keyId: unknown;
     amount: unknown;
     orderId: unknown;
@@ -484,6 +510,7 @@ export function BookingApp() {
     onDismiss: (failure: string | null) => void;
     onSuccess: (result: CheckoutResult) => void;
   }) {
+    const logo = await loadCheckoutLogo();
     if (!window.Razorpay) return;
     // Razorpay shows a failed attempt inside its window and lets the customer
     // try again there. If they give up, the reason is shown on the page.
@@ -495,7 +522,7 @@ export function BookingApp() {
       order_id: options.orderId,
       name: "CCS Cricket Academy",
       description: `${options.lineCount} ground slot${options.lineCount === 1 ? "" : "s"} · ${options.reference}`,
-      image: `${window.location.origin}/logo.png`,
+      ...(logo && { image: logo }),
       prefill: { name: details.name, email: details.email, contact: `+91${details.phone}` },
       notes: { reference: options.reference },
       theme: { color: "#071a2c" },
