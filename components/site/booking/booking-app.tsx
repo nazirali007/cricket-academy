@@ -33,7 +33,6 @@ import {
 } from "@/lib/booking";
 import { bookingPhone } from "@/lib/site";
 import { MonthCalendar, type SlotState } from "./calendar";
-import { DemoCheckout } from "./demo-checkout";
 import { SlotIcon } from "./slot-icon";
 
 const REFRESH_EVERY_MS = 20_000;
@@ -44,8 +43,6 @@ type Availability = {
   nowMinutes: number;
   maxDate: string;
   online: boolean;
-  demo: boolean;
-  testCheckout?: boolean;
   unavailable: { date: string; slotId: string }[];
 };
 
@@ -213,21 +210,11 @@ export function BookingApp() {
     email: "",
     organisation: "",
   });
-  // Test mode only: what happened to the test invoice email.
-  const [demoInvoice, setDemoInvoice] = useState<{ sent: boolean; html: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [holdUntil, setHoldUntil] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  // Test mode only: bookings kept in memory, so a refresh clears them.
-  const [demoBooked, setDemoBooked] = useState<string[]>([]);
-  const [demoPayment, setDemoPayment] = useState<{
-    reference: string;
-    lines: PricedLine[];
-    total: number;
-  } | null>(null);
-
   const restored = useRef(false);
   const itemsRef = useRef<CartItem[]>([]);
   const phaseRef = useRef<Phase>("select");
@@ -256,12 +243,7 @@ export function BookingApp() {
         !taken.has(slotKey(item.date, item.slotId)) &&
         checkSlot(item.date, item.slotId, now) === null;
 
-      // In test mode nothing is restored, so a refresh starts clean.
-      const base = restored.current
-        ? itemsRef.current
-        : next.demo
-          ? []
-          : readCart();
+      const base = restored.current ? itemsRef.current : readCart();
       restored.current = true;
       // During payment the customer's own hold shows as taken, so leave it.
       if (["paying", "confirming", "done"].includes(phaseRef.current)) return;
@@ -301,8 +283,8 @@ export function BookingApp() {
 
   useEffect(() => {
     itemsRef.current = items;
-    if (restored.current && !data?.demo) saveCart(items);
-  }, [items, data?.demo]);
+    if (restored.current) saveCart(items);
+  }, [items]);
 
   if (!data) {
     return (
@@ -328,13 +310,10 @@ export function BookingApp() {
     );
   }
 
-  const { today, nowMinutes, maxDate, online, demo, testCheckout = false } = data;
-  const canBook = online || demo;
+  const { today, nowMinutes, maxDate, online } = data;
+  const canBook = online;
   const now = { today, minutes: nowMinutes };
-  const taken = new Set([
-    ...data.unavailable.map((u) => slotKey(u.date, u.slotId)),
-    ...demoBooked,
-  ]);
+  const taken = new Set(data.unavailable.map((u) => slotKey(u.date, u.slotId)));
   const inCart = new Set(items.map((i) => slotKey(i.date, i.slotId)));
   const editable = phase === "select" && canBook;
 
@@ -579,25 +558,6 @@ export function BookingApp() {
       umpires,
     }));
 
-    if (demo) {
-      // Nothing is saved in test mode.
-      const clash = snapshot.lines.filter((l) => taken.has(slotKey(l.date, l.slotId)));
-      if (clash.length) {
-        setBusy(false);
-        setItems(items.filter((i) => !taken.has(slotKey(i.date, i.slotId))));
-        setNotice(`Sorry, ${clash.map(lineLabel).join("; ")} is no longer available.`);
-        return goTo("select");
-      }
-      if (testCheckout) return payWithTestCheckout(snapshot, cart, customer);
-      setBusy(false);
-      setDemoPayment({
-        reference: `TEST-${String(Date.now()).slice(-5)}`,
-        lines: snapshot.lines,
-        total: snapshot.total,
-      });
-      return goTo("paying");
-    }
-
     let response: Response;
     let body: Record<string, unknown>;
     try {
@@ -673,127 +633,6 @@ export function BookingApp() {
     });
   }
 
-  // Test mode with Razorpay test keys: a real Razorpay test order and checkout,
-  // checked on the server, but nothing is saved.
-  async function payWithTestCheckout(
-    snapshot: ReturnType<typeof priceCart>,
-    cart: CartItem[],
-    customer: Details,
-  ) {
-    let response: Response;
-    let body: Record<string, unknown>;
-    try {
-      response = await fetch("/api/demo/order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: cart, expectedTotal: snapshot.total, ...customer }),
-      });
-      body = await response.json().catch(() => ({}));
-    } catch {
-      setBusy(false);
-      return setError("Please check your internet connection and try again.");
-    }
-    if (!response.ok) {
-      setBusy(false);
-      if (body.code === "price_changed") {
-        return setError("Our rates have been updated. Please refresh the page to see the new prices.");
-      }
-      return setError(typeof body.error === "string" ? body.error : "Something went wrong. Please try again.");
-    }
-
-    const reference = String(body.reference);
-    if (!(await loadCheckout()) || !window.Razorpay) {
-      setBusy(false);
-      return setError(
-        "We couldn't open the payment window. Please check your connection, turn off any ad blocker for this site, and try again.",
-      );
-    }
-
-    settled.current = false;
-    setHoldUntil(null);
-    goTo("paying");
-    setBusy(false);
-
-    openRazorpay({
-      keyId: body.keyId,
-      amount: body.amount,
-      orderId: body.orderId,
-      reference,
-      lineCount: snapshot.lines.length,
-      onDismiss: (failure) => {
-        goTo("review");
-        setError(failure ? failedMessage(failure, false) : "Payment wasn't completed. You can try again.");
-      },
-      onSuccess: async (result) => {
-        settled.current = true;
-        goTo("confirming");
-        let message = "We couldn't confirm this test payment. Please try again.";
-        try {
-          const check = await fetch("/api/demo/verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              orderId: result.razorpay_order_id,
-              paymentId: result.razorpay_payment_id,
-              signature: result.razorpay_signature,
-            }),
-          });
-          const verdict = await check.json().catch(() => ({}));
-          if (check.ok && verdict.status === "confirmed") {
-            return finishDemoPayment({
-              reference,
-              lines: snapshot.lines,
-              total: snapshot.total,
-            });
-          }
-          if (typeof verdict.error === "string") message = verdict.error;
-        } catch {
-          message = "Please check your internet connection and try again.";
-        }
-        goTo("review");
-        setError(message);
-      },
-    });
-  }
-
-  function finishDemoPayment(payment: { reference: string; lines: PricedLine[]; total: number }) {
-    const { reference, lines, total } = payment;
-    setDemoBooked((booked) => [
-      ...booked,
-      ...lines.map((l) => slotKey(l.date, l.slotId)),
-    ]);
-    setDemoPayment(null);
-    setItems([]);
-    setDemoInvoice(null);
-    setOutcome({ status: "confirmed", reference, token: "", lines, total });
-    goTo("done");
-    fetch("/api/demo/invoice", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        reference,
-        items: lines.map(({ date, slotId, balls, umpires }) => ({ date, slotId, balls, umpires })),
-        ...details,
-      }),
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((result) => result && setDemoInvoice(result))
-      .catch(() => {});
-  }
-
-  function previewInvoice() {
-    if (!demoInvoice) return;
-    const url = URL.createObjectURL(new Blob([demoInvoice.html], { type: "text/html;charset=utf-8" }));
-    window.open(url, "_blank", "noopener");
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  }
-
-  function cancelDemoPayment() {
-    setDemoPayment(null);
-    goTo("review");
-    setError("Payment wasn't completed, so your slots were released. You can try again.");
-  }
-
   function startOver() {
     setOutcome(null);
     setError(null);
@@ -806,15 +645,6 @@ export function BookingApp() {
   return (
     <div id="pick-a-slot" className="grid scroll-mt-24 gap-8 lg:grid-cols-[1.35fr_1fr]">
       <div className="min-w-0">
-        {demo && (
-          <p role="status" className="mb-6 border-2 border-amber-400 bg-amber-400/15 p-4">
-            <strong className="text-amber-300">Test mode.</strong> Try the whole
-            booking and payment flow. Nothing is saved and no money is taken.
-            {testCheckout &&
-              " Payments open Razorpay's real test checkout, so pay with Razorpay's test card or UPI details."}{" "}
-            Refresh the page to clear your test bookings.
-          </p>
-        )}
         {!canBook && (
           <p role="status" className="mb-6 border border-gold/60 bg-gold/10 p-4">
             Online booking isn&apos;t available right now. You can still check which
@@ -1396,37 +1226,12 @@ export function BookingApp() {
                 <span>{formatRupees(outcome.total)}</span>
               </p>
 
-              {outcome.token ? (
-                <Link
-                  href={`/booking/${outcome.token}`}
-                  className="mt-6 flex h-12 items-center justify-center bg-navy text-sm font-bold text-white"
-                >
-                  View and save your booking
-                </Link>
-              ) : (
-                <div className="mt-6 space-y-3 bg-amber-100 p-3 text-sm font-semibold text-amber-900">
-                  <p>
-                    Test booking: these slots now show as Booked until you refresh
-                    the page.
-                  </p>
-                  <p role="status">
-                    {!demoInvoice
-                      ? "Preparing your invoice…"
-                      : demoInvoice.sent
-                        ? `Test invoice emailed to ${details.email}.`
-                        : `On the live site the invoice is emailed to ${details.email}. Email isn't set up on this computer, so preview it instead.`}
-                  </p>
-                  {demoInvoice && (
-                    <button
-                      type="button"
-                      onClick={previewInvoice}
-                      className="h-10 w-full bg-navy text-sm font-bold text-white"
-                    >
-                      Preview invoice email
-                    </button>
-                  )}
-                </div>
-              )}
+              <Link
+                href={`/booking/${outcome.token}`}
+                className="mt-6 flex h-12 items-center justify-center bg-navy text-sm font-bold text-white"
+              >
+                View and save your booking
+              </Link>
               <button
                 type="button"
                 onClick={startOver}
@@ -1438,17 +1243,6 @@ export function BookingApp() {
           )}
         </div>
       </div>
-
-      {demoPayment && (
-        <DemoCheckout
-          amount={demoPayment.total}
-          reference={demoPayment.reference}
-          name={details.name}
-          phone={details.phone}
-          onSuccess={() => demoPayment && finishDemoPayment(demoPayment)}
-          onClose={cancelDemoPayment}
-        />
-      )}
 
       {phase === "select" && items.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-4 border-t border-white/15 bg-navy/97 px-5 py-3 text-white backdrop-blur lg:hidden">
