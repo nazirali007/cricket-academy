@@ -61,6 +61,22 @@ const schema = `
   );
   CREATE INDEX IF NOT EXISTS admissions_created ON admissions (created_at);
   CREATE INDEX IF NOT EXISTS admissions_phone ON admissions (phone, created_at);
+
+  -- Supabase publishes every table through its public Data API. Row level
+  -- security with no policies shuts that door, so customer details can only
+  -- be read through this site's server, which owns the tables.
+  ALTER TABLE ground_bookings ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE slot_locks ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE admissions ENABLE ROW LEVEL SECURITY;
+
+  -- Failed admin sign-ins, used to lock out password guessing.
+  CREATE TABLE IF NOT EXISTS admin_login_failures (
+    ip TEXT NOT NULL,
+    failed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS admin_login_failures_ip
+    ON admin_login_failures (ip, failed_at);
+  ALTER TABLE admin_login_failures ENABLE ROW LEVEL SECURITY;
 `;
 
 let pool: Pool | undefined;
@@ -68,9 +84,42 @@ let ready: Promise<unknown> | undefined;
 
 export const isDatabaseConfigured = () => Boolean(process.env.DATABASE_URL);
 
+// Supabase signs its database certificates with its own authority, which
+// Node doesn't know, so a plain "sslmode=require" link would be refused. With
+// DATABASE_CA_CERT (the certificate from Supabase > Database > SSL) the server
+// is fully verified; without it the link is still encrypted.
+function poolConfig(url: string) {
+  const ca = process.env.DATABASE_CA_CERT?.replace(/\\n/g, "\n").trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { connectionString: url };
+  }
+  const supabase = /\.supabase\.(co|com)$/.test(parsed.hostname);
+  if (!supabase && !ca) return { connectionString: url };
+  for (const key of ["sslmode", "sslrootcert", "uselibpqcompat"]) {
+    parsed.searchParams.delete(key);
+  }
+  return {
+    connectionString: parsed.toString(),
+    ssl: ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false },
+  };
+}
+
 export async function database() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
-  pool ??= new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
+  if (!pool) {
+    pool = new Pool({
+      ...poolConfig(process.env.DATABASE_URL),
+      max: 5,
+      // Serverless hosts freeze between requests; drop idle links early so a
+      // stale one is never handed out.
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 10_000,
+    });
+    pool.on("error", (error) => console.error("Database connection dropped", error));
+  }
   // Creates the tables the first time the site connects.
   ready ??= pool.query(schema).catch((error) => {
     ready = undefined;
@@ -157,10 +206,13 @@ const columns = `id, token, status, customer_name AS name, phone, organisation,
   invoice_sent_at AS "invoiceSentAt"`;
 
 // Only dates and slots, so no customer details ever reach the public page.
+// "held" slots belong to someone who is paying right now: they can't be
+// chosen, but only become booked once the payment is confirmed.
 export async function getTakenSlots(from: string, to: string) {
   const db = await database();
-  const { rows } = await db.query<{ date: string; slotId: string }>(
-    `SELECT to_char(l.match_date, 'YYYY-MM-DD') AS date, l.slot_id AS "slotId"
+  const { rows } = await db.query<{ date: string; slotId: string; held: boolean }>(
+    `SELECT to_char(l.match_date, 'YYYY-MM-DD') AS date, l.slot_id AS "slotId",
+            b.status = 'pending' AS held
      FROM slot_locks l JOIN ground_bookings b ON b.id = l.booking_id
      WHERE l.match_date BETWEEN $1::date AND $2::date
        AND (b.status <> 'pending' OR b.expires_at > NOW())`,
@@ -565,4 +617,32 @@ export async function getBookingStats(today: string): Promise<BookingStats> {
   return Object.fromEntries(
     Object.entries(rows[0]).map(([key, value]) => [key, Number(value)]),
   ) as BookingStats;
+}
+
+// ── Admin sign-in lockout ───────────────────────────────────────────────
+
+// Minutes left before this address may try again, or 0 if it may try now.
+export async function loginLockMinutes(ip: string, maxFailures: number, windowMinutes: number) {
+  const db = await database();
+  const { rows } = await db.query<{ count: string; oldest: Date | null }>(
+    `SELECT COUNT(*) AS count, MIN(failed_at) AS oldest FROM admin_login_failures
+     WHERE ip = $1 AND failed_at > NOW() - make_interval(mins => $2)`,
+    [ip, windowMinutes],
+  );
+  const { count, oldest } = rows[0];
+  if (Number(count) < maxFailures || !oldest) return 0;
+  const unlocksAt = new Date(oldest).getTime() + windowMinutes * 60_000;
+  return Math.max(1, Math.ceil((unlocksAt - Date.now()) / 60_000));
+}
+
+export async function recordLoginFailure(ip: string) {
+  const db = await database();
+  await db.query("INSERT INTO admin_login_failures (ip) VALUES ($1)", [ip]);
+  // Keeps the table small.
+  await db.query("DELETE FROM admin_login_failures WHERE failed_at < NOW() - INTERVAL '1 day'");
+}
+
+export async function clearLoginFailures(ip: string) {
+  const db = await database();
+  await db.query("DELETE FROM admin_login_failures WHERE ip = $1", [ip]);
 }

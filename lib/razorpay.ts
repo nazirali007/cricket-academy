@@ -74,6 +74,10 @@ export const createOrder = (
 export const fetchPayment = (paymentId: string) =>
   api<RazorpayPayment>(`/payments/${paymentId}`);
 
+// Every attempt made against an order, including ones still in progress.
+export const fetchOrderPayments = (orderId: string) =>
+  api<{ items: RazorpayPayment[] }>(`/orders/${orderId}/payments`);
+
 export const capturePayment = (paymentId: string, amountPaise: number) =>
   api<RazorpayPayment>(`/payments/${paymentId}/capture`, {
     amount: amountPaise,

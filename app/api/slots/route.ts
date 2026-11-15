@@ -14,7 +14,7 @@ export async function GET() {
     .filter(({ date }) => date >= today && date <= maxDate)
     .map(({ date, slotId }) => ({ date, slotId }));
 
-  let taken: { date: string; slotId: string }[] = [];
+  let taken: { date: string; slotId: string; held: boolean }[] = [];
   let connected = isDatabaseConfigured();
   if (connected) {
     try {
@@ -33,7 +33,13 @@ export async function GET() {
       maxDate,
       // Online booking needs both the database and Razorpay.
       online,
-      unavailable: [...events, ...taken],
+      // Booked: paid for, or used by an academy event.
+      unavailable: [
+        ...events,
+        ...taken.filter((t) => !t.held).map(({ date, slotId }) => ({ date, slotId })),
+      ],
+      // Someone is paying for these now. They free up if the payment fails.
+      held: taken.filter((t) => t.held).map(({ date, slotId }) => ({ date, slotId })),
     },
     { headers: { "Cache-Control": "no-store" } },
   );

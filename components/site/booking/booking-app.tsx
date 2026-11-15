@@ -43,7 +43,10 @@ type Availability = {
   nowMinutes: number;
   maxDate: string;
   online: boolean;
+  // Paid for, or used by an academy event.
   unavailable: { date: string; slotId: string }[];
+  // Someone else is paying for these right now.
+  held: { date: string; slotId: string }[];
 };
 
 type Phase = "select" | "details" | "review" | "paying" | "confirming" | "done";
@@ -55,15 +58,35 @@ type Details = {
   organisation: string;
 };
 
+type Settled = "confirmed" | "refunded" | "refund_failed" | "refunding";
+
+// What the server says about a booking's payment.
+type PaymentReport = {
+  status?: string;
+  cancelledByAcademy?: boolean;
+  paymentId?: string | null;
+  paidAt?: string | null;
+  invoiceByEmail?: boolean;
+};
+
 type Outcome = {
-  status: "confirmed" | "refunded" | "refund_failed" | "refunding" | "checking";
+  status: Settled | "checking";
   reference: string;
   token: string;
   lines: PricedLine[];
   total: number;
   // The academy cancelled the hold while the customer was paying.
   cancelledByAcademy?: boolean;
+  paymentId?: string | null;
+  paidAt?: string | null;
+  invoiceByEmail?: boolean;
 };
+
+const isSettled = (status: unknown): status is Settled =>
+  status === "confirmed" ||
+  status === "refunded" ||
+  status === "refund_failed" ||
+  status === "refunding";
 
 type CheckoutResult = {
   razorpay_order_id: string;
@@ -153,6 +176,16 @@ const timeOf = (iso: string) =>
     timeZone: "Asia/Kolkata",
   });
 
+const paidOn = (iso: string) =>
+  new Date(iso).toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata",
+  });
+
 const shortDate = (date: string) =>
   formatDate(date, { weekday: "short", day: "numeric", month: "short" });
 
@@ -225,6 +258,10 @@ export function BookingApp() {
   const goTo = useCallback((next: Phase) => {
     phaseRef.current = next;
     setPhase(next);
+    // The payment result must be seen, wherever the customer had scrolled to.
+    if (next === "confirming" || next === "done") {
+      panelRef.current?.scrollIntoView({ block: "start" });
+    }
   }, []);
 
   // Keeps the chart current while the page is open, and drops any slot in the
@@ -237,7 +274,9 @@ export function BookingApp() {
       setData(next);
       setLoadFailed(false);
 
-      const taken = new Set(next.unavailable.map((u) => slotKey(u.date, u.slotId)));
+      const taken = new Set(
+        [...next.unavailable, ...next.held].map((u) => slotKey(u.date, u.slotId)),
+      );
       const now = { today: next.today, minutes: next.nowMinutes };
       const stillValid = (item: CartItem) =>
         !taken.has(slotKey(item.date, item.slotId)) &&
@@ -314,6 +353,7 @@ export function BookingApp() {
   const canBook = online;
   const now = { today, minutes: nowMinutes };
   const taken = new Set(data.unavailable.map((u) => slotKey(u.date, u.slotId)));
+  const held = new Set(data.held.map((u) => slotKey(u.date, u.slotId)));
   const inCart = new Set(items.map((i) => slotKey(i.date, i.slotId)));
   const editable = phase === "select" && canBook;
 
@@ -321,6 +361,7 @@ export function BookingApp() {
     const key = slotKey(date, slot.id);
     if (inCart.has(key)) return "selected";
     if (taken.has(key)) return "booked";
+    if (held.has(key)) return "held";
     if (checkSlot(date, slot.id, now)) return "closed";
     return "available";
   };
@@ -416,32 +457,45 @@ export function BookingApp() {
     scrollToPanel();
   }
 
-  async function release(token: string) {
+  // Frees the slots, unless Razorpay says the payment went through after all.
+  async function release(token: string): Promise<PaymentReport> {
     try {
-      await fetch("/api/bookings/release", {
+      const response = await fetch("/api/bookings/release", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
         keepalive: true,
       });
+      return await response.json();
     } catch {
-      // The hold expires on its own if this fails.
+      // The hold runs out on its own.
+      return { status: "kept" };
     }
   }
+
+  const finish = (
+    report: PaymentReport & { status: Settled | "checking" },
+    reference: string,
+    token: string,
+    snapshot: { lines: PricedLine[]; total: number },
+  ) =>
+    setOutcome({
+      ...report,
+      cancelledByAcademy: Boolean(report.cancelledByAcademy),
+      reference,
+      token,
+      lines: snapshot.lines,
+      total: snapshot.total,
+    });
 
   async function checkStatus(token: string, reference: string, snapshot: { lines: PricedLine[]; total: number }) {
     for (let attempt = 0; attempt < 20; attempt++) {
       try {
         const response = await fetch(`/api/bookings/status?token=${token}`, { cache: "no-store" });
         if (response.ok) {
-          const { status, cancelledByAcademy } = await response.json();
-          if (
-            status === "confirmed" ||
-            status === "refunded" ||
-            status === "refund_failed" ||
-            status === "refunding"
-          ) {
-            return setOutcome({ status, reference, token, cancelledByAcademy, ...snapshot });
+          const report: PaymentReport = await response.json();
+          if (isSettled(report.status)) {
+            return finish({ ...report, status: report.status }, reference, token, snapshot);
           }
         }
       } catch {
@@ -449,7 +503,7 @@ export function BookingApp() {
       }
       await sleep(3000);
     }
-    setOutcome({ status: "checking", reference, token, ...snapshot });
+    finish({ status: "checking" }, reference, token, snapshot);
   }
 
   async function confirmPayment(
@@ -472,15 +526,9 @@ export function BookingApp() {
           signature: response.razorpay_signature,
         }),
       });
-      const body = await result.json().catch(() => ({}));
-      if (result.ok && body.status) {
-        setOutcome({
-          status: body.status,
-          reference,
-          token,
-          cancelledByAcademy: Boolean(body.cancelledByAcademy),
-          ...snapshot,
-        });
+      const report: PaymentReport = await result.json().catch(() => ({}));
+      if (result.ok && isSettled(report.status)) {
+        finish({ ...report, status: report.status }, reference, token, snapshot);
       } else {
         await checkStatus(token, reference, snapshot);
       }
@@ -620,12 +668,25 @@ export function BookingApp() {
       reference,
       lineCount: snapshot.lines.length,
       onDismiss: async (failure) => {
-        await release(token);
+        goTo("confirming");
+        const report = await release(token);
+        if (isSettled(report.status)) {
+          // The payment went through just as the window closed.
+          settled.current = true;
+          setItems([]);
+          finish({ ...report, status: report.status }, reference, token, snapshot);
+          goTo("done");
+          load();
+          return;
+        }
+        const released = report.status !== "kept";
         goTo("review");
         setError(
           failure
-            ? failedMessage(failure, true)
-            : "Payment wasn't completed, so your slots were released. You can try again.",
+            ? failedMessage(failure, released)
+            : released
+              ? "Payment wasn't completed, so your slots were released. You can try again."
+              : `Payment wasn't completed. If money left your account, your booking confirms automatically within a few minutes; otherwise your slots free up at ${timeOf(String(body.expiresAt))}.`,
         );
         load();
       },
@@ -667,6 +728,10 @@ export function BookingApp() {
             Booked
           </li>
           <li className="flex items-center gap-2">
+            <span aria-hidden className="h-2 w-4 rounded-full bg-amber-400" />
+            On hold
+          </li>
+          <li className="flex items-center gap-2">
             <span aria-hidden className="h-2 w-4 rounded-full bg-gold" />
             Your choice
           </li>
@@ -680,7 +745,9 @@ export function BookingApp() {
           </li>
         </ul>
         <p className="mt-2 text-sm text-white/70">
-          Each bar under a date is one slot, from morning to night.
+          Each bar under a date is one slot, from morning to night. A slot is
+          on hold while someone pays for it, and opens again if the payment
+          isn&apos;t completed.
         </p>
 
         <div className="mt-5">
@@ -736,7 +803,9 @@ export function BookingApp() {
                         ? "border-emerald-400/70 bg-emerald-500/12 enabled:hover:bg-emerald-500/22"
                         : state === "booked"
                           ? "border-red-400/70 bg-red-600/18"
-                          : "border-white/15 bg-white/5 opacity-60"
+                          : state === "held"
+                            ? "border-amber-400/70 bg-amber-500/12"
+                            : "border-white/15 bg-white/5 opacity-60"
                   } ${clickable ? "cursor-pointer" : "cursor-not-allowed"}`}
                 >
                   <span className="flex items-start justify-between gap-3">
@@ -749,7 +818,9 @@ export function BookingApp() {
                             ? "bg-emerald-400 text-navy"
                             : state === "booked"
                               ? "bg-red-600 text-white"
-                              : "bg-white/15 text-white"
+                              : state === "held"
+                                ? "bg-amber-400 text-navy"
+                                : "bg-white/15 text-white"
                       }`}
                     >
                       {state === "selected" && <Check aria-hidden className="size-3.5" />}
@@ -759,7 +830,9 @@ export function BookingApp() {
                           ? "Available"
                           : state === "booked"
                             ? "Booked"
-                            : "Closed"}
+                            : state === "held"
+                              ? "On hold"
+                              : "Closed"}
                     </span>
                   </span>
                   <span className="mt-4 block font-display text-3xl font-bold uppercase">
@@ -772,6 +845,11 @@ export function BookingApp() {
                   {editable && state === "available" && (
                     <span className="mt-2 block text-sm font-semibold text-emerald-300">
                       {full ? `Limit of ${MAX_SLOTS_PER_BOOKING} slots reached` : "+ Add to booking"}
+                    </span>
+                  )}
+                  {state === "held" && (
+                    <span className="mt-2 block text-sm font-semibold text-amber-300">
+                      Someone is paying for this slot. Check again in a few minutes.
                     </span>
                   )}
                   {editable && state === "selected" && (
@@ -1173,13 +1251,14 @@ export function BookingApp() {
                     Booking confirmed
                   </h3>
                   <p className="mt-2 text-muted-foreground">
-                    Payment received. Your reference is{" "}
-                    <strong className="text-navy">{outcome.reference}</strong>.
-                    {outcome.token && (
+                    Payment received and your slots are booked.
+                    {outcome.invoiceByEmail ? (
                       <>
                         {" "}Your invoice is on its way to{" "}
-                        <strong className="text-navy break-all">{details.email}</strong>.
+                        <strong className="text-navy [overflow-wrap:anywhere]">{details.email}</strong>.
                       </>
+                    ) : (
+                      " Save your booking page below as your receipt."
                     )}
                   </p>
                 </>
@@ -1211,13 +1290,49 @@ export function BookingApp() {
                 </>
               )}
 
-              <ul className="mt-5 divide-y divide-navy/15 border-y border-navy/15 text-sm">
+              <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 border-t border-navy/15 pt-4 text-sm">
+                <dt className="text-muted-foreground">Reference</dt>
+                <dd className="text-right font-bold">{outcome.reference}</dd>
+                <dt className="text-muted-foreground">Name</dt>
+                <dd className="text-right font-semibold break-words">
+                  {details.name}
+                  {details.organisation && `, ${details.organisation}`}
+                </dd>
+                <dt className="text-muted-foreground">Phone</dt>
+                <dd className="text-right font-semibold">+91 {details.phone}</dd>
+                <dt className="text-muted-foreground">Email</dt>
+                <dd className="text-right font-semibold break-all">{details.email}</dd>
+                {outcome.paymentId && (
+                  <>
+                    <dt className="text-muted-foreground">Payment ID</dt>
+                    <dd className="text-right font-mono text-xs break-all">{outcome.paymentId}</dd>
+                  </>
+                )}
+                {outcome.paidAt && (
+                  <>
+                    <dt className="text-muted-foreground">Paid on</dt>
+                    <dd className="text-right font-semibold">{paidOn(outcome.paidAt)}</dd>
+                  </>
+                )}
+              </dl>
+
+              <ul className="mt-4 divide-y divide-navy/15 border-y border-navy/15 text-sm">
                 {outcome.lines.map((line) => (
-                  <li key={slotKey(line.date, line.slotId)} className="flex justify-between gap-3 py-2">
-                    <span>
-                      {shortDate(line.date)}, {line.slotName} ({line.timing})
+                  <li key={slotKey(line.date, line.slotId)} className="py-2.5">
+                    <span className="flex justify-between gap-3">
+                      <span className="font-semibold">
+                        {shortDate(line.date)}, {line.slotName}
+                      </span>
+                      <span className="font-semibold">{formatRupees(line.total)}</span>
                     </span>
-                    <span className="font-semibold">{formatRupees(line.total)}</span>
+                    <span className="block text-muted-foreground">
+                      {line.timing} · Ground {formatRupees(line.rate)}
+                    </span>
+                    {addOnText(line).map((text) => (
+                      <span key={text} className="block text-muted-foreground">
+                        {text}
+                      </span>
+                    ))}
                   </li>
                 ))}
               </ul>

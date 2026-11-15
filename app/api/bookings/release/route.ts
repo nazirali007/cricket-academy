@@ -1,13 +1,26 @@
 import { NextResponse } from "next/server";
-import { releaseHold } from "@/lib/db";
+import { paymentOutcome, releaseUnpaidHold } from "@/lib/payments";
 
-// Puts the slots back on sale when a customer closes the payment window.
+// Called when a customer closes the payment window. Frees their slots, unless
+// Razorpay says the payment went through after all.
 export async function POST(request: Request) {
+  let token: unknown;
   try {
-    const { token } = await request.json();
-    if (typeof token === "string") await releaseHold(token);
+    ({ token } = await request.json());
+  } catch {
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+  if (typeof token !== "string") {
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+  try {
+    const result = await releaseUnpaidHold(token);
+    return NextResponse.json(
+      "booking" in result ? paymentOutcome(result.booking) : { status: result.status },
+    );
   } catch (error) {
     console.error("Could not release hold", error);
+    // The hold runs out on its own.
+    return NextResponse.json({ status: "kept" }, { status: 503 });
   }
-  return new NextResponse(null, { status: 204 });
 }

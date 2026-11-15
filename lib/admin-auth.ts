@@ -1,30 +1,37 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { connection } from "next/server";
+import { cache } from "react";
+import {
+  createSessionToken,
+  SESSION_COOKIE,
+  sessionCookieOptions,
+  verifySessionToken,
+} from "./admin-session";
 
-export const ADMIN_COOKIE = "ccs_admin";
+// Read once per request, however many components ask. connection() marks the
+// caller as per-request, so a session is never baked into a prerendered page.
+export const getAdminSession = cache(async () => {
+  await connection();
+  return verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+});
 
-const hash = (value: string) =>
-  createHmac("sha256", "ccs-academy-admin").update(value).digest();
+export const isAdmin = async () => (await getAdminSession()) !== null;
 
-export function passwordMatches(attempt: string) {
-  const password = process.env.ADMIN_PASSWORD;
-  if (!password) return false;
-  return timingSafeEqual(hash(attempt), hash(password));
+export async function startAdminSession() {
+  const { token, expiresAt } = createSessionToken();
+  (await cookies()).set(SESSION_COOKIE, token, {
+    ...sessionCookieOptions,
+    expires: new Date(expiresAt),
+    priority: "high",
+  });
 }
 
-// The cookie holds a hash that changes if ADMIN_PASSWORD changes, which signs
-// out every existing session.
-export function adminCookieValue() {
-  const password = process.env.ADMIN_PASSWORD;
-  if (!password) throw new Error("ADMIN_PASSWORD is not set");
-  return hash(`session:${password}`).toString("hex");
+export async function endAdminSession() {
+  (await cookies()).set(SESSION_COOKIE, "", { ...sessionCookieOptions, maxAge: 0 });
 }
 
-export async function isAdmin() {
-  if (!process.env.ADMIN_PASSWORD) return false;
-  const value = (await cookies()).get(ADMIN_COOKIE)?.value;
-  if (!value) return false;
-  const expected = Buffer.from(adminCookieValue());
-  const actual = Buffer.from(value);
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+// The visitor's address, as reported by the host (Vercel sets this header).
+export async function clientIp() {
+  const list = (await headers()).get("x-forwarded-for") ?? "";
+  return list.split(",")[0]?.trim().slice(0, 64) || "unknown";
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getBookingByToken } from "@/lib/db";
+import { paymentOutcome } from "@/lib/payments";
 
 // Lets the page check a payment's outcome if its own confirmation failed.
 export async function GET(request: Request) {
@@ -9,13 +10,9 @@ export async function GET(request: Request) {
     if (!booking) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    return NextResponse.json(
-      {
-        status: booking.status === "refund_pending" ? "refunding" : booking.status,
-        cancelledByAcademy: booking.cancelledByAcademy,
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json(paymentOutcome(booking), {
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch {
     return NextResponse.json({ error: "Unavailable" }, { status: 503 });
   }

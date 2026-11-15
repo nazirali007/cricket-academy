@@ -1,33 +1,69 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { clientIp, endAdminSession, startAdminSession } from "@/lib/admin-auth";
+import { credentialsMatch, isAdminConfigured, safeAdminPath } from "@/lib/admin-session";
 import {
-  ADMIN_COOKIE,
-  adminCookieValue,
-  passwordMatches,
-} from "@/lib/admin-auth";
+  clearLoginFailures,
+  isDatabaseConfigured,
+  loginLockMinutes,
+  recordLoginFailure,
+} from "@/lib/db";
 
-// A failed attempt waits a moment, which makes guessing the password slow.
-const FAILED_LOGIN_DELAY_MS = 1200;
+export type LoginState = { error: string | null; username: string };
 
-export async function logIn(_previous: string | null, form: FormData) {
-  if (!passwordMatches(String(form.get("password") ?? ""))) {
-    await new Promise((resolve) => setTimeout(resolve, FAILED_LOGIN_DELAY_MS));
-    return "That password isn't correct.";
+const MAX_FAILURES = 5;
+const LOCK_MINUTES = 15;
+// Every failed try waits a moment, so guessing is slow even before lockout.
+const FAILED_DELAY_MS = 1000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// The lockout lives in the database so it holds across all of the host's
+// servers. If the database is down, signing in still works, just unlimited.
+async function guard<T>(work: () => Promise<T>, fallback: T) {
+  if (!isDatabaseConfigured()) return fallback;
+  try {
+    return await work();
+  } catch (error) {
+    console.error("Admin sign-in lockout unavailable", error);
+    return fallback;
   }
-  (await cookies()).set(ADMIN_COOKIE, adminCookieValue(), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    path: "/admin",
-    maxAge: 60 * 60 * 12,
-  });
-  revalidatePath("/admin", "layout");
-  return null;
+}
+
+export async function logIn(_previous: LoginState, form: FormData): Promise<LoginState> {
+  const username = String(form.get("username") ?? "").slice(0, 100);
+  const password = String(form.get("password") ?? "").slice(0, 200);
+  const next = safeAdminPath(form.get("next"));
+
+  if (!isAdminConfigured()) {
+    return { error: "Admin sign-in isn't set up on the server yet.", username };
+  }
+  if (!username.trim() || !password) {
+    return { error: "Enter your user ID and password.", username };
+  }
+
+  const ip = await clientIp();
+  const locked = await guard(() => loginLockMinutes(ip, MAX_FAILURES, LOCK_MINUTES), 0);
+  if (locked > 0) {
+    return {
+      error: `Too many failed attempts. Try again in ${locked} minute${locked === 1 ? "" : "s"}.`,
+      username,
+    };
+  }
+
+  if (!credentialsMatch(username, password)) {
+    await guard(() => recordLoginFailure(ip), undefined);
+    await sleep(FAILED_DELAY_MS);
+    return { error: "Incorrect user ID or password.", username };
+  }
+
+  await guard(() => clearLoginFailures(ip), undefined);
+  await startAdminSession();
+  redirect(next);
 }
 
 export async function logOut() {
-  (await cookies()).delete({ name: ADMIN_COOKIE, path: "/admin" });
-  revalidatePath("/admin", "layout");
+  await endAdminSession();
+  redirect("/admin/login");
 }

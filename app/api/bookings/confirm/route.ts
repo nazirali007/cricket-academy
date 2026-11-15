@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getBookingByToken } from "@/lib/db";
-import { settlePayment } from "@/lib/payments";
+import { paymentOutcome, settlePayment } from "@/lib/payments";
 import { ORDER_ID, PAYMENT_ID, verifyCheckoutSignature } from "@/lib/razorpay";
 
 const fail = (status: number, error: string) =>
@@ -39,10 +39,7 @@ export async function POST(request: Request) {
     if (!("booking" in result)) {
       return fail(400, "We couldn't verify this payment.");
     }
-    return NextResponse.json({
-      status: result.status,
-      cancelledByAcademy: result.booking.cancelledByAcademy,
-    });
+    return NextResponse.json({ ...paymentOutcome(result.booking), status: result.status });
   } catch (error) {
     console.error("Could not confirm payment", error);
     return fail(502, "We're still confirming your payment.");

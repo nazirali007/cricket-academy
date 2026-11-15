@@ -3,13 +3,14 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatDate } from "@/lib/booking";
 
-export type SlotState = "available" | "booked" | "closed" | "selected";
+export type SlotState = "available" | "booked" | "held" | "closed" | "selected";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const bar: Record<SlotState, string> = {
   available: "bg-emerald-400",
   booked: "bg-red-500",
+  held: "bg-amber-400",
   closed: "bg-white/25",
   selected: "bg-gold",
 };
@@ -94,7 +95,7 @@ export function MonthCalendar({
           const free = states.filter(
             (s) => s === "available" || s === "selected",
           ).length;
-          const anyBooked = states.includes("booked");
+          const anyBooked = states.includes("booked") || states.includes("held");
           const isSelected = date === selectedDate;
           const chosen = chosenCount(date);
 

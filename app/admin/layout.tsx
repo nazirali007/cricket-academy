@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { isAdmin } from "@/lib/admin-auth";
-import { logOut } from "./actions";
+import { getAdminSession } from "@/lib/admin-auth";
 import { AdminNav } from "./_components/nav";
+import { SignOutButton } from "./_components/sign-out";
 
 export const metadata: Metadata = {
   title: { template: "%s · CCS Admin", default: "Admin" },
@@ -11,15 +11,17 @@ export const metadata: Metadata = {
 
 // The tabs and sign-out show once signed in. Each page checks access itself.
 async function SignedInBar() {
-  if (!(await isAdmin())) return null;
+  const session = await getAdminSession();
+  if (!session) return null;
   return (
     <div className="flex items-end justify-between gap-4">
       <AdminNav />
-      <form action={logOut} className="shrink-0 pb-3">
-        <button type="submit" className="text-sm font-bold text-white/70 underline hover:text-white">
-          Sign out
-        </button>
-      </form>
+      <div className="flex shrink-0 items-center gap-4 pb-3 text-sm">
+        <span className="hidden text-white/60 sm:inline">
+          Signed in as <strong className="text-white">{session.username}</strong>
+        </span>
+        <SignOutButton />
+      </div>
     </div>
   );
 }

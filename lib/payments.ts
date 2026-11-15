@@ -4,13 +4,16 @@ import {
   finalizePayment,
   getBookingByOrderId,
   getBookingByPaymentId,
+  getBookingByToken,
   markInvoiceSent,
   markRefundedOutsideSite,
   recordRefund,
+  releaseHold,
   reopenRefund,
   type BookingRecord,
 } from "./db";
 import {
+  isEmailConfigured,
   sendBookingAlert,
   sendCustomerRefundNotice,
   sendInvoice,
@@ -18,6 +21,7 @@ import {
 } from "./email";
 import {
   capturePayment,
+  fetchOrderPayments,
   fetchPayment,
   listRefunds,
   refundPayment,
@@ -201,4 +205,40 @@ function settledResult(booking: BookingRecord): SettleResult {
     return { status: current.status, booking: current };
   }
   return { status: "unknown" };
+}
+
+// What the customer's page is told about a booking's payment. No personal
+// details: the page already has them.
+export const paymentOutcome = (booking: BookingRecord) => ({
+  status: booking.status === "refund_pending" ? "refunding" : booking.status,
+  cancelledByAcademy: booking.cancelledByAcademy,
+  paymentId: booking.paymentId,
+  paidAt: booking.paidAt,
+  invoiceByEmail: isEmailConfigured() && Boolean(booking.email),
+});
+
+// The customer closed the payment window. Before their slots go back on sale,
+// ask Razorpay whether a payment went through anyway (a UPI payment can
+// succeed a moment after the window closes). If it did, the booking is
+// confirmed; if Razorpay can't be reached, the hold simply runs out instead.
+export async function releaseUnpaidHold(
+  token: string,
+): Promise<SettleResult | { status: "released" | "kept" }> {
+  const booking = await getBookingByToken(token);
+  if (!booking) return { status: "unknown" };
+  if (booking.status !== "pending") return settledResult(booking);
+
+  if (booking.orderId) {
+    let payments: RazorpayPayment[];
+    try {
+      ({ items: payments } = await fetchOrderPayments(booking.orderId));
+    } catch (error) {
+      console.error(`Could not check payments for booking ${booking.id}`, error);
+      return { status: "kept" };
+    }
+    const paid = payments.find((p) => p.status === "captured" || p.status === "authorized");
+    if (paid) return settlePayment(booking.orderId, paid.id);
+  }
+  await releaseHold(token);
+  return { status: "released" };
 }
