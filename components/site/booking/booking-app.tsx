@@ -33,6 +33,7 @@ import {
 } from "@/lib/booking";
 import { bookingPhone } from "@/lib/site";
 import { MonthCalendar, type SlotState } from "./calendar";
+import { Confetti } from "./confetti";
 import { SlotIcon } from "./slot-icon";
 
 const REFRESH_EVERY_MS = 20_000;
@@ -1244,9 +1245,15 @@ export function BookingApp() {
             <div role="status">
               {outcome.status === "confirmed" ? (
                 <>
-                  <span className="grid size-14 place-items-center rounded-full bg-emerald-600 text-white">
+                  <Confetti />
+                  <motion.span
+                    initial={{ scale: 0, rotate: -45 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    transition={{ type: "spring", stiffness: 320, damping: 14, delay: 0.1 }}
+                    className="grid size-14 place-items-center rounded-full bg-emerald-600 text-white shadow-[0_0_0_8px_rgb(5_150_105/0.15)]"
+                  >
                     <Check aria-hidden className="size-8" />
-                  </span>
+                  </motion.span>
                   <h3 className="mt-5 font-display text-4xl leading-none font-bold uppercase">
                     Booking confirmed
                   </h3>
