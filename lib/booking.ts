@@ -13,16 +13,17 @@ export type Slot = {
   name: string;
   timing: string;
   rate: number;
-  // Minutes after midnight, in India time, when the slot starts.
+  // Minutes after midnight, in India time, when the slot starts and ends.
   startsAt: number;
+  endsAt: number;
 };
 
 // The same 4 slots run every day. Only the rates differ at weekends.
 const daySlots = [
-  { id: "morning", name: "Morning", timing: "7:30 AM – 11:30 AM", startsAt: 450 },
-  { id: "afternoon", name: "Afternoon", timing: "12:00 PM – 3:30 PM", startsAt: 720 },
-  { id: "evening", name: "Evening", timing: "4:00 PM – 7:30 PM", startsAt: 960 },
-  { id: "night", name: "Night", timing: "8:00 PM – 11:30 PM", startsAt: 1200 },
+  { id: "morning", name: "Morning", timing: "7:30 AM – 11:30 AM", startsAt: 450, endsAt: 690 },
+  { id: "afternoon", name: "Afternoon", timing: "12:00 PM – 3:30 PM", startsAt: 720, endsAt: 930 },
+  { id: "evening", name: "Evening", timing: "4:00 PM – 7:30 PM", startsAt: 960, endsAt: 1170 },
+  { id: "night", name: "Night", timing: "8:00 PM – 11:30 PM", startsAt: 1200, endsAt: 1410 },
 ] as const;
 
 const withRates = (rates: Record<SlotId, number>): Slot[] =>
@@ -30,17 +31,17 @@ const withRates = (rates: Record<SlotId, number>): Slot[] =>
 
 // Morning and afternoon cost the same.
 export const weekdaySlots = withRates({
-  morning: 5000,
-  afternoon: 5000,
-  evening: 12500,
-  night: 13000,
+  morning: 3500,
+  afternoon: 3500,
+  evening: 10000,
+  night: 12000,
 });
 
 export const weekendSlots = withRates({
-  morning: 8000,
-  afternoon: 8000,
-  evening: 12500,
-  night: 15000,
+  morning: 6000,
+  afternoon: 6000,
+  evening: 11000,
+  night: 13000,
 });
 
 // Every slot in a day, in order, as words. Used in policies and FAQs.

@@ -84,7 +84,7 @@ async function Overview() {
       )}
 
       <h2 className="mt-10 font-display text-2xl font-bold uppercase">Ground bookings</h2>
-      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <StatCard
           label="Matches today"
           value={bookings.matchesToday}
@@ -102,10 +102,17 @@ async function Overview() {
           value={formatRupees(bookings.collectedThisMonth)}
           hint={`${formatRupees(bookings.collectedAllTime)} from ${bookings.paidBookings} paid bookings in total`}
         />
+        <StatCard
+          label="Balance still due"
+          value={formatRupees(bookings.balanceDue)}
+          hint="Links go out before each match, or collect at the ground"
+          href="/admin/bookings?view=paid"
+        />
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
-        Money figures count paid bookings only, after refunds. Razorpay&apos;s
-        fees are not taken off.
+        Money figures count what was actually received, online and in cash,
+        for bookings that weren&apos;t refunded. Razorpay&apos;s fees are not
+        taken off.
       </p>
 
       <div className="mt-10 grid gap-8 lg:grid-cols-2">

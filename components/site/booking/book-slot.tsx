@@ -17,8 +17,8 @@ export function BookSlot({ showPageLink = false }: { showPageLink?: boolean }) {
           <Heading>Your match. Our ground. Pick your slot.</Heading>
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-white/80">
             For corporate matches, clubs and private games at our cricket
-            stadium in Lucknow. Pick one or more free slots, check the total and
-            pay online in a few minutes.
+            stadium in Lucknow. Pick one or more free slots and pay just 25%
+            online to book. The rest is paid closer to each match.
           </p>
           {showPageLink && (
             <Link

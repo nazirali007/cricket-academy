@@ -1,6 +1,6 @@
 "use client";
 
-import { cancelBooking, resendInvoice, retryRefund } from "./actions";
+import { cancelBooking, markCashPaid, resendInvoice, retryRefund } from "./actions";
 
 export function CancelButton({
   id,
@@ -16,7 +16,7 @@ export function CancelButton({
       action={cancelBooking}
       onSubmit={(event) => {
         const message = paid
-          ? `Cancel ${label} and refund it? The academy is cancelling, so the customer gets a FULL refund through Razorpay now (it reaches them in 5–7 working days), and the slots become available again. This can't be undone.`
+          ? `Cancel ${label} and refund it? The academy is cancelling, so everything the customer paid online is refunded through Razorpay now (it reaches them in 5–7 working days), and the slots become available again. Any cash taken at the ground must be returned by hand. This can't be undone.`
           : `Cancel ${label}? Its slots will become available again.`;
         if (!window.confirm(message)) event.preventDefault();
       }}
@@ -59,6 +59,36 @@ export function RetryRefundButton({ id, label }: { id: number; label: string }) 
         className="border border-navy px-3 py-1.5 text-sm font-bold whitespace-nowrap transition-colors hover:bg-navy hover:text-white"
       >
         Retry refund
+      </button>
+    </form>
+  );
+}
+
+export function CashButton({
+  id,
+  date,
+  slotId,
+  label,
+}: {
+  id: number;
+  date: string;
+  slotId: string;
+  label: string;
+}) {
+  return (
+    <form
+      action={markCashPaid}
+      onSubmit={(event) => {
+        if (!window.confirm(`Mark the balance for ${label} as collected at the ground? Any open payment link for it is cancelled.`)) {
+          event.preventDefault();
+        }
+      }}
+    >
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="date" value={date} />
+      <input type="hidden" name="slotId" value={slotId} />
+      <button type="submit" className="text-xs font-bold text-emerald-800 underline">
+        Collected at ground
       </button>
     </form>
   );

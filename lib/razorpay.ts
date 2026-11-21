@@ -99,6 +99,62 @@ export const listRefunds = (paymentId: string) =>
   api<{ items: RazorpayRefund[] }>(`/payments/${paymentId}/refunds`);
 
 export const REFUND_ID = /^rfnd_[A-Za-z0-9]{6,40}$/;
+export const PAYMENT_LINK_ID = /^plink_[A-Za-z0-9]{6,40}$/;
+
+export type RazorpayPaymentLink = {
+  id: string;
+  short_url: string;
+  amount: number;
+  amount_paid: number;
+  status: "created" | "partially_paid" | "paid" | "cancelled" | "expired";
+  reference_id?: string;
+  payments?: { payment_id: string; amount: number; status: string }[] | null;
+};
+
+// A link to pay one part of a booking. Razorpay texts it to the customer and,
+// when asked, emails it too.
+export const createPaymentLink = (input: {
+  amountPaise: number;
+  description: string;
+  referenceId: string;
+  customer: { name: string; phone: string; email: string | null };
+  sendEmail: boolean;
+  callbackUrl: string;
+  expiresAt: number;
+  notes: Record<string, string>;
+}) =>
+  api<RazorpayPaymentLink>("/payment_links", {
+    amount: input.amountPaise,
+    currency: "INR",
+    accept_partial: false,
+    description: input.description,
+    reference_id: input.referenceId,
+    customer: {
+      name: input.customer.name,
+      contact: `+91${input.customer.phone}`,
+      ...(input.customer.email && { email: input.customer.email }),
+    },
+    notify: { sms: true, email: input.sendEmail && Boolean(input.customer.email) },
+    reminder_enable: false,
+    callback_url: input.callbackUrl,
+    callback_method: "get",
+    expire_by: Math.floor(input.expiresAt / 1000),
+    notes: input.notes,
+  });
+
+export const fetchPaymentLink = (id: string) =>
+  api<RazorpayPaymentLink>(`/payment_links/${id}`);
+
+export const cancelPaymentLink = (id: string) =>
+  api<RazorpayPaymentLink>(`/payment_links/${id}/cancel`, {});
+
+// Finds a link by our own reference, for a run that stopped after creating it.
+export const findPaymentLink = async (referenceId: string) =>
+  (
+    await api<{ payment_links: RazorpayPaymentLink[] }>(
+      `/payment_links?reference_id=${encodeURIComponent(referenceId)}`,
+    )
+  ).payment_links[0] ?? null;
 
 function matches(expected: string, actual: string) {
   const a = Buffer.from(expected);

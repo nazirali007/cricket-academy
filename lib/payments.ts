@@ -5,12 +5,17 @@ import {
   getBookingByOrderId,
   getBookingByPaymentId,
   getBookingByToken,
+  listSlotPayments,
   markInvoiceSent,
   markRefundedOutsideSite,
+  markSlotPaymentCancelled,
+  markSlotPaymentPaid,
+  markSlotPaymentRefunded,
   recordRefund,
   releaseHold,
   reopenRefund,
   type BookingRecord,
+  type SlotPayment,
 } from "./db";
 import {
   isEmailConfigured,
@@ -20,12 +25,15 @@ import {
   sendRefundAlert,
 } from "./email";
 import {
+  cancelPaymentLink,
   capturePayment,
   fetchOrderPayments,
+  fetchPaymentLink,
   fetchPayment,
   listRefunds,
   refundPayment,
   type RazorpayPayment,
+  type RazorpayPaymentLink,
   type RazorpayRefund,
 } from "./razorpay";
 
@@ -33,7 +41,8 @@ export type SettleResult =
   | { status: "confirmed" | "refunded" | "refund_failed" | "refunding"; booking: BookingRecord }
   | { status: "unknown" | "not_paid" | "mismatch" };
 
-const notify = (send: () => Promise<void>, id: number) =>
+// Sends an email straight after the response, so customers never wait for it.
+export const notify = (send: () => Promise<unknown>, id: number) =>
   after(async () => {
     try {
       await send();
@@ -50,7 +59,7 @@ const refundReason = (booking: BookingRecord) =>
 // Gives back whatever is left of a payment, after first asking Razorpay how
 // much has already been refunded. That makes a retry safe: it can never pay
 // the customer back twice.
-async function refundRemainder(paymentId: string, reason: string) {
+export async function refundRemainder(paymentId: string, reason: string) {
   const payment = await fetchPayment(paymentId);
   const remaining = payment.amount - (payment.amount_refunded ?? 0);
   if (remaining <= 0 || payment.status === "refunded") {
@@ -66,22 +75,68 @@ async function refundRemainder(paymentId: string, reason: string) {
   return refund.id;
 }
 
-// Refunds the whole amount. Only one caller can refund a booking, even if two
-// arrive at the same moment.
+// Records a payment link as paid, from Razorpay's own record of it.
+export async function settleLink(row: SlotPayment, link: RazorpayPaymentLink) {
+  const payment =
+    link.payments?.find((p) => p.status === "captured") ?? link.payments?.[0];
+  if (link.status !== "paid" || !payment || link.amount_paid !== row.amount * 100) {
+    return null;
+  }
+  return markSlotPaymentPaid(row.id, payment.payment_id);
+}
+
+// Stops an unpaid link from being used. If the customer paid it just before,
+// it's recorded as paid instead and returned.
+export async function closeLink(row: SlotPayment) {
+  if (!row.linkId) return null;
+  try {
+    await cancelPaymentLink(row.linkId);
+    await markSlotPaymentCancelled(row.id);
+    return null;
+  } catch (error) {
+    const link = await fetchPaymentLink(row.linkId);
+    if (link.status === "paid") return settleLink(row, link);
+    if (link.status === "cancelled" || link.status === "expired") {
+      await markSlotPaymentCancelled(row.id);
+      return null;
+    }
+    throw error;
+  }
+}
+
+// Refunds everything paid online: the booking amount and every payment link.
+// Open links are closed first. Cash taken at the ground is listed in the
+// academy's alert, to be returned by hand. Only one caller can refund a
+// booking, and a retry never pays anything back twice.
 export async function refundInFull(booking: BookingRecord) {
   if (!booking.paymentId || !(await claimRefund(booking.id))) return booking;
+  const reason = refundReason(booking);
   let result: BookingRecord;
   try {
-    const refundId = await refundRemainder(booking.paymentId, refundReason(booking));
+    for (const open of (await listSlotPayments([booking.id])).filter((p) => p.status === "sent")) {
+      await closeLink(open);
+    }
+    const refundId = await refundRemainder(booking.paymentId, reason);
+    for (const part of await listSlotPayments([booking.id])) {
+      if (part.status !== "paid" || !part.paymentId) continue;
+      await markSlotPaymentRefunded(part.id, await refundRemainder(part.paymentId, reason));
+    }
     result = await recordRefund(booking.id, "refunded", refundId);
   } catch (error) {
     console.error(`Refund failed for booking ${booking.id}`, error);
     result = await recordRefund(booking.id, "refund_failed", null);
   }
-  notify(() => sendRefundAlert(result), result.id);
-  notify(async () => {
-    await sendCustomerRefundNotice(result);
-  }, result.id);
+  const parts = await listSlotPayments([booking.id]);
+  const total = (status: SlotPayment["status"], cash: boolean) =>
+    parts
+      .filter((p) => p.status === status && (p.stage === "cash") === cash)
+      .reduce((sum, p) => sum + p.amount, 0);
+  const amounts = {
+    online: booking.deposit + total("refunded", false) + total("paid", false),
+    cash: total("paid", true),
+  };
+  notify(() => sendRefundAlert(result, amounts), result.id);
+  notify(() => sendCustomerRefundNotice(result, amounts.online), result.id);
   return result;
 }
 
@@ -117,7 +172,7 @@ export async function syncRefund(refund: RazorpayRefund, event: "processed" | "f
   if (event === "failed") {
     if (booking.status === "refunded" && booking.refundId === refund.id) {
       const failed = await recordRefund(booking.id, "refund_failed", refund.id);
-      notify(() => sendRefundAlert(failed), failed.id);
+      notify(() => sendRefundAlert(failed, { online: booking.deposit, cash: 0 }), failed.id);
     }
     return;
   }
@@ -128,10 +183,8 @@ export async function syncRefund(refund: RazorpayRefund, event: "processed" | "f
   if (booking.status === "refunded") return;
   const closed = await markRefundedOutsideSite(booking.id, refund.id);
   if (!closed) return;
-  notify(() => sendRefundAlert(closed), closed.id);
-  notify(async () => {
-    await sendCustomerRefundNotice(closed);
-  }, closed.id);
+  notify(() => sendRefundAlert(closed, { online: payment.amount / 100, cash: 0 }), closed.id);
+  notify(() => sendCustomerRefundNotice(closed, payment.amount / 100), closed.id);
 }
 
 // Turns a Razorpay payment into a confirmed booking, or refunds it if the
@@ -152,7 +205,7 @@ export async function settlePayment(
   if (
     payment.order_id !== orderId ||
     payment.currency !== "INR" ||
-    payment.amount !== booking.total * 100
+    payment.amount !== booking.deposit * 100
   ) {
     console.error("Payment does not match booking", { orderId, paymentId });
     return { status: "mismatch" };

@@ -31,6 +31,7 @@ import {
   type PricedLine,
   type Slot,
 } from "@/lib/booking";
+import { depositFor, planFor, stageName } from "@/lib/installments";
 import { bookingPhone } from "@/lib/site";
 import { MonthCalendar, type SlotState } from "./calendar";
 import { Confetti } from "./confetti";
@@ -187,6 +188,19 @@ const paidOn = (iso: string) =>
     timeZone: "Asia/Kolkata",
   });
 
+// When a later payment link goes out, in words.
+const linkTime = (at: number, now: number) =>
+  at <= now + 60_000
+    ? "link sent right after booking"
+    : `link sent ${new Date(at).toLocaleString("en-IN", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "Asia/Kolkata",
+      })}`;
+
 const shortDate = (date: string) =>
   formatDate(date, { weekday: "short", day: "numeric", month: "short" });
 
@@ -249,6 +263,8 @@ export function BookingApp() {
   const [busy, setBusy] = useState(false);
   const [holdUntil, setHoldUntil] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // Refreshed with availability, for showing when payment links will go out.
+  const [clock, setClock] = useState(0);
   const restored = useRef(false);
   const itemsRef = useRef<CartItem[]>([]);
   const phaseRef = useRef<Phase>("select");
@@ -273,6 +289,7 @@ export function BookingApp() {
       if (!response.ok) throw new Error(String(response.status));
       const next: Availability = await response.json();
       setData(next);
+      setClock(Date.now());
       setLoadFailed(false);
 
       const taken = new Set(
@@ -386,6 +403,7 @@ export function BookingApp() {
       : (sortCart(items)[0]?.date ?? firstOpenDay);
   const shownMonth = month ?? date.slice(0, 7);
   const priced = priceCart(items);
+  const deposit = depositFor(priced.lines);
   const full = items.length >= MAX_SLOTS_PER_BOOKING;
 
   function chooseDate(next: string) {
@@ -973,6 +991,12 @@ export function BookingApp() {
                   {formatRupees(priced.total)}
                 </motion.span>
               </div>
+              {items.length > 0 && (
+                <p className="mt-1 text-right text-sm text-muted-foreground">
+                  Pay {formatRupees(deposit)} (25%) now to book. The rest is paid
+                  closer to each match.
+                </p>
+              )}
               <button
                 type="button"
                 disabled={items.length === 0 || !canBook}
@@ -1099,6 +1123,19 @@ export function BookingApp() {
                             {text}
                           </p>
                         ))}
+                        <ol className="mt-2 space-y-0.5 border-l-2 border-ball/40 pl-2.5 text-xs">
+                          {planFor(line, clock).map((part) => (
+                            <li key={part.stage}>
+                              <span className="font-semibold">
+                                {part.sendAt === null ? "Now" : stageName[part.stage]}:{" "}
+                                {formatRupees(part.amount)}
+                              </span>
+                              {part.sendAt !== null && (
+                                <span className="text-muted-foreground"> · {linkTime(part.sendAt, clock)}</span>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
                       </td>
                       <td className="py-3 text-right font-bold whitespace-nowrap">
                         {formatRupees(line.total)}
@@ -1117,10 +1154,14 @@ export function BookingApp() {
                     <th scope="row" className="font-normal">Balls and umpires</th>
                     <td className="text-right">{formatRupees(priced.addOnsTotal)}</td>
                   </tr>
+                  <tr>
+                    <th scope="row" className="pt-1 font-bold">Total</th>
+                    <td className="pt-1 text-right font-bold">{formatRupees(priced.total)}</td>
+                  </tr>
                   <tr className="text-lg">
-                    <th scope="row" className="pt-3">Total to pay</th>
+                    <th scope="row" className="pt-3">Pay now (25%)</th>
                     <td className="pt-3 text-right font-display text-4xl font-bold">
-                      {formatRupees(priced.total)}
+                      {formatRupees(deposit)}
                     </td>
                   </tr>
                 </tfoot>
@@ -1149,13 +1190,16 @@ export function BookingApp() {
 
               <div className="mt-5 space-y-2 bg-mist p-3 text-sm leading-relaxed">
                 <p>
-                  <strong>No refunds after booking.</strong> If you cancel, the
-                  amount isn&apos;t refunded. If the academy cancels your match,
-                  you get a 100% refund.
+                  <strong>No refunds after booking.</strong> If you cancel,
+                  amounts already paid aren&apos;t refunded. If the academy
+                  cancels your match, you get a 100% refund.
                 </p>
                 <p>
-                  When you press Pay, your slots are held for you while you
-                  complete the payment. No extra charges are added to this total.
+                  <strong>Pay in three parts.</strong> 25% now books your slots.
+                  For each slot, we send a payment link by SMS and email for the
+                  next 25% 24 hours before the match (if you book more than a day
+                  ahead), and for the balance 8 hours before. You can also pay
+                  anything left at the ground. No extra charges are added.
                 </p>
                 <p>
                   By paying, you agree to our{" "}
@@ -1209,7 +1253,7 @@ export function BookingApp() {
                   ) : (
                     <Lock aria-hidden className="size-4" />
                   )}
-                  {busy ? "Reserving your slots…" : `Pay ${formatRupees(priced.total)}`}
+                  {busy ? "Reserving your slots…" : `Pay ${formatRupees(deposit)} now`}
                 </button>
               </div>
               <p className="mt-3 text-center text-xs text-muted-foreground">
@@ -1258,7 +1302,9 @@ export function BookingApp() {
                     Booking confirmed
                   </h3>
                   <p className="mt-2 text-muted-foreground">
-                    Payment received and your slots are booked.
+                    Your booking amount is paid and your slots are booked. We&apos;ll
+                    send links for the rest to +91 {details.phone} and your email
+                    before each match.
                     {outcome.invoiceByEmail ? (
                       <>
                         {" "}Your invoice is on its way to{" "}
@@ -1291,7 +1337,7 @@ export function BookingApp() {
                       ? "The academy cancelled these slots while you were paying."
                       : "Your payment arrived after your hold ended and someone else had booked a slot."}{" "}
                     {outcome.status === "refunded"
-                      ? "Your full payment has been refunded and should reach you in 5–7 working days."
+                      ? "Your payment has been refunded in full and should reach you in 5–7 working days."
                       : `We're refunding your payment in full. If you have questions, call ${bookingPhone} with reference ${outcome.reference}.`}
                   </p>
                 </>
@@ -1340,13 +1386,42 @@ export function BookingApp() {
                         {text}
                       </span>
                     ))}
+                    {outcome.status === "confirmed" && (
+                      <ol className="mt-1.5 space-y-0.5 border-l-2 border-emerald-600/50 pl-2.5 text-xs">
+                        {planFor(line, outcome.paidAt ? Date.parse(outcome.paidAt) : clock).map((part) => (
+                          <li key={part.stage}>
+                            <span className="font-semibold">
+                              {part.sendAt === null ? "Paid" : stageName[part.stage]}:{" "}
+                              {formatRupees(part.amount)}
+                            </span>
+                            {part.sendAt !== null && (
+                              <span className="text-muted-foreground"> · {linkTime(part.sendAt, clock)}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ol>
+                    )}
                   </li>
                 ))}
               </ul>
-              <p className="mt-3 flex justify-between font-bold">
-                <span>{outcome.status === "confirmed" ? "Paid" : "Amount"}</span>
-                <span>{formatRupees(outcome.total)}</span>
-              </p>
+              <div className="mt-3 space-y-1 text-sm">
+                <p className="flex justify-between">
+                  <span>Total</span>
+                  <span className="font-semibold">{formatRupees(outcome.total)}</span>
+                </p>
+                <p className="flex justify-between text-base font-bold">
+                  <span>{outcome.status === "confirmed" ? "Paid now" : "Amount paid"}</span>
+                  <span>{formatRupees(depositFor(outcome.lines))}</span>
+                </p>
+                {outcome.status === "confirmed" && (
+                  <p className="flex justify-between">
+                    <span>Balance, by link before each match</span>
+                    <span className="font-semibold">
+                      {formatRupees(outcome.total - depositFor(outcome.lines))}
+                    </span>
+                  </p>
+                )}
+              </div>
 
               <Link
                 href={`/booking/${outcome.token}`}

@@ -10,6 +10,10 @@ export type InvoiceInput = {
   organisation: string | null;
   lines: PricedLine[];
   total: number;
+  // Paid online when booking.
+  paidNow: number;
+  // The payment links still to come, in date order.
+  upcoming: { slot: string; part: string; amount: number; sendAt: string }[];
   paymentId: string | null;
   receiptUrl: string | null;
   test?: boolean;
@@ -17,7 +21,7 @@ export type InvoiceInput = {
 
 // Customer details are typed by the public, so they're escaped before going
 // into the email's HTML.
-const escape = (value: string) =>
+export const escape = (value: string) =>
   value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -52,13 +56,19 @@ export function buildInvoice(invoice: InvoiceInput) {
   const groundTotal = invoice.lines.reduce((sum, l) => sum + l.rate, 0);
   const addOnsTotal = invoice.total - groundTotal;
   const address = contact.address.replace(/\n/g, " ");
+  const balance = invoice.total - invoice.paidNow;
   const subject = `${invoice.test ? "[TEST] " : ""}Your CCS Academy booking invoice ${invoice.reference}`;
+  const upcomingText = invoice.upcoming.map(
+    (u) => `- ${u.slot}: ${u.part}, ${formatRupees(u.amount)}. Link sent ${u.sendAt}.`,
+  );
 
   const text = [
     invoice.test ? "TEST BOOKING: no real payment was taken.\n" : "",
     `Hi ${invoice.name},`,
     "",
-    "Thank you for booking the ground at CCS Academy. Your payment is confirmed.",
+    balance > 0
+      ? "Thank you for booking the ground at CCS Academy. Your booking amount is paid and your slots are booked."
+      : "Thank you for booking the ground at CCS Academy. Your payment is confirmed.",
     "",
     `Invoice: ${invoice.reference}`,
     `Date: ${issued(invoice.issuedAt)}`,
@@ -70,12 +80,22 @@ export function buildInvoice(invoice: InvoiceInput) {
     "",
     `Ground: ${formatRupees(groundTotal)}`,
     `Balls and umpires: ${formatRupees(addOnsTotal)}`,
-    `Total paid: ${formatRupees(invoice.total)}`,
+    `Total: ${formatRupees(invoice.total)}`,
+    `Paid now: ${formatRupees(invoice.paidNow)}`,
+    balance > 0 ? `Balance: ${formatRupees(balance)}` : "",
     invoice.paymentId ? `Razorpay payment ID: ${invoice.paymentId}` : "",
     "No GST is charged.",
     "",
+    ...(upcomingText.length
+      ? [
+          "Remaining payments. We send each payment link to your mobile by SMS and to this email:",
+          ...upcomingText,
+          "Anything unpaid at match time can be paid at the ground.",
+          "",
+        ]
+      : []),
     invoice.receiptUrl ? `View your booking: ${invoice.receiptUrl}` : "",
-    "Bookings are not refundable if you cancel. If the academy cancels your match, you get a 100% refund.",
+    "Amounts paid are not refundable if you cancel. If the academy cancels your match, you get a 100% refund.",
     `Refund policy: ${siteUrl}/refund-policy`,
     "",
     `CCS Academy, ${address}`,
@@ -115,7 +135,7 @@ export function buildInvoice(invoice: InvoiceInput) {
       </td></tr>
       <tr><td style="padding:28px">
         <p style="margin:0 0 16px">Hi ${escape(invoice.name)},</p>
-        <p style="margin:0 0 24px">Thank you for booking the ground at CCS Academy. Your payment is confirmed and your slots are booked.</p>
+        <p style="margin:0 0 24px">Thank you for booking the ground at CCS Academy. ${balance > 0 ? "Your booking amount is paid and your slots are booked." : "Your payment is confirmed and your slots are booked."}</p>
 
         <table role="presentation" width="100%" style="font-size:14px;margin-bottom:24px"><tr>
           <td style="vertical-align:top;width:50%">
@@ -138,14 +158,28 @@ export function buildInvoice(invoice: InvoiceInput) {
           ${rows}
           <tr><td style="padding-top:14px">Ground (${invoice.lines.length} slot${invoice.lines.length === 1 ? "" : "s"})</td><td style="padding-top:14px;text-align:right">${formatRupees(groundTotal)}</td></tr>
           <tr><td>Balls and umpires</td><td style="text-align:right">${formatRupees(addOnsTotal)}</td></tr>
-          <tr><td style="padding-top:10px;font-size:18px"><strong>Total paid</strong></td><td style="padding-top:10px;text-align:right;font-size:22px"><strong>${formatRupees(invoice.total)}</strong></td></tr>
+          <tr><td style="padding-top:10px">Total</td><td style="padding-top:10px;text-align:right">${formatRupees(invoice.total)}</td></tr>
+          <tr><td style="padding-top:6px;font-size:18px"><strong>Paid now</strong></td><td style="padding-top:6px;text-align:right;font-size:22px"><strong>${formatRupees(invoice.paidNow)}</strong></td></tr>
+          ${balance > 0 ? `<tr><td>Balance</td><td style="text-align:right"><strong>${formatRupees(balance)}</strong></td></tr>` : ""}
           <tr><td colspan="2" style="padding-top:6px;color:#4b5d6c;font-size:12px">No GST is charged.</td></tr>
         </table>
+
+        ${invoice.upcoming.length ? `
+        <div style="margin-top:24px;padding:16px;border:1px solid #e5e1d8">
+          <div style="font-weight:bold;margin-bottom:6px">Remaining payments</div>
+          <div style="color:#4b5d6c;font-size:13px;margin-bottom:10px">We send each payment link to your mobile by SMS and to this email. Anything unpaid at match time can be paid at the ground.</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px">
+            ${invoice.upcoming.map((u) => `<tr>
+              <td style="padding:6px 0;border-top:1px solid #f0ece3"><strong>${escape(u.slot)}</strong><br><span style="color:#4b5d6c">${escape(u.part)} · link sent ${escape(u.sendAt)}</span></td>
+              <td style="padding:6px 0;border-top:1px solid #f0ece3;text-align:right;white-space:nowrap"><strong>${formatRupees(u.amount)}</strong></td>
+            </tr>`).join("")}
+          </table>
+        </div>` : ""}
 
         ${invoice.receiptUrl ? `<p style="margin:28px 0 0"><a href="${invoice.receiptUrl}" style="display:inline-block;background:#c9281f;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 22px">View your booking</a></p>` : ""}
 
         <p style="margin:28px 0 0;padding:12px;background:#d7e2ea;font-size:13px">
-          <strong>No refunds after booking.</strong> If you cancel, the amount isn't refunded. If the academy cancels your match, you get a 100% refund.
+          <strong>No refunds after booking.</strong> If you cancel, amounts already paid aren't refunded. If the academy cancels your match, you get a 100% refund.
           <a href="${siteUrl}/refund-policy" style="color:#071a2c">Refund policy</a>
         </p>
       </td></tr>
@@ -165,6 +199,7 @@ export function buildInvoice(invoice: InvoiceInput) {
 export function buildRefundNotice(input: {
   reference: string;
   name: string;
+  // What was paid online and is being returned.
   total: number;
   cancelledByAcademy: boolean;
   refunded: boolean;
@@ -173,8 +208,8 @@ export function buildRefundNotice(input: {
     ? "The academy has cancelled your booking."
     : "Your payment reached us after your slot hold had ended, and someone else had booked one of your slots in the meantime.";
   const outcome = input.refunded
-    ? `Your full payment of ${formatRupees(input.total)} has been refunded. It should reach your account in 5–7 working days.`
-    : `We're refunding your full payment of ${formatRupees(input.total)}. Our team will contact you if we need anything.`;
+    ? `Everything you paid online, ${formatRupees(input.total)}, has been refunded. It should reach your account in 5–7 working days.`
+    : `We're refunding everything you paid online, ${formatRupees(input.total)}. Our team will contact you if we need anything.`;
   const text = [
     `Hi ${input.name},`,
     "",
@@ -196,4 +231,83 @@ export function buildRefundNotice(input: {
     text,
     html,
   };
+}
+
+const button = (url: string, label: string) =>
+  `<p style="margin:24px 0"><a href="${url}" style="display:inline-block;background:#c9281f;color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 26px">${escape(label)}</a></p>`;
+
+const shell = (title: string, body: string) => `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(title)}</title></head>
+<body style="margin:0;background:#f6f3ec;font-family:Arial,Helvetica,sans-serif;color:#071a2c;line-height:1.55">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f3ec;padding:24px 12px"><tr><td align="center">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff">
+      <tr><td style="background:#071a2c;padding:20px 28px"><img src="${siteUrl}/logo.png" width="48" height="52" alt="CCS Academy" style="display:block"></td></tr>
+      <tr><td style="padding:28px">${body}</td></tr>
+      <tr><td style="background:#071a2c;padding:18px 28px;color:#d7e2ea;font-size:12px">CCS Academy · ${escape(bookingPhone)} · <a href="mailto:${contact.email}" style="color:#d7e2ea">${contact.email}</a></td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
+
+type SlotMessage = {
+  reference: string;
+  name: string;
+  slot: string;
+  part: string;
+  amount: number;
+  slotTotal: number;
+  paidBefore: number;
+};
+
+// Sent with each payment link (24 hours and 8 hours before a match).
+export function buildPaymentLinkEmail(input: SlotMessage & { url: string; dueBy: string }) {
+  const subject = `Payment due for your match: ${input.slot} (${input.reference})`;
+  const lines = [
+    `Hi ${input.name},`,
+    "",
+    `Your match is coming up: ${input.slot}.`,
+    `${input.part}: ${formatRupees(input.amount)}.`,
+    `Slot price ${formatRupees(input.slotTotal)}, paid so far ${formatRupees(input.paidBefore)}.`,
+    "",
+    `Pay securely here: ${input.url}`,
+    `Please pay before ${input.dueBy}. You can also pay at the ground.`,
+    "",
+    `Booking ${input.reference} · Questions? Call ${bookingPhone}.`,
+    "CCS Academy",
+  ];
+  const html = shell(subject, `
+    <p style="margin:0 0 12px">Hi ${escape(input.name)},</p>
+    <p style="margin:0 0 16px">Your match is coming up: <strong>${escape(input.slot)}</strong>.</p>
+    <table role="presentation" width="100%" style="font-size:14px;border-top:1px solid #e5e1d8;border-bottom:1px solid #e5e1d8;padding:8px 0">
+      <tr><td>Slot price</td><td style="text-align:right">${formatRupees(input.slotTotal)}</td></tr>
+      <tr><td>Paid so far</td><td style="text-align:right">${formatRupees(input.paidBefore)}</td></tr>
+      <tr><td style="padding-top:6px;font-size:17px"><strong>${escape(input.part)}</strong></td><td style="padding-top:6px;text-align:right;font-size:20px"><strong>${formatRupees(input.amount)}</strong></td></tr>
+    </table>
+    ${button(input.url, `Pay ${formatRupees(input.amount)}`)}
+    <p style="margin:0;color:#4b5d6c;font-size:13px">Please pay before ${escape(input.dueBy)}. You can also pay at the ground. Booking ${escape(input.reference)}.</p>`);
+  return { subject, text: lines.join("\n"), html };
+}
+
+// Sent when a payment link is paid.
+export function buildPartReceipt(input: SlotMessage & { paymentId: string; receiptUrl: string }) {
+  const balance = Math.max(0, input.slotTotal - input.paidBefore - input.amount);
+  const subject = `Payment received: ${formatRupees(input.amount)} for ${input.slot} (${input.reference})`;
+  const lines = [
+    `Hi ${input.name},`,
+    "",
+    `We've received ${formatRupees(input.amount)} for ${input.slot}. Thank you.`,
+    balance > 0
+      ? `Balance for this slot: ${formatRupees(balance)}. We'll send the link for it before the match.`
+      : "This slot is now fully paid.",
+    `Razorpay payment ID: ${input.paymentId}`,
+    "",
+    `Your booking: ${input.receiptUrl}`,
+    "CCS Academy",
+  ];
+  const html = shell(subject, `
+    <p style="margin:0 0 12px">Hi ${escape(input.name)},</p>
+    <p style="margin:0 0 16px">We've received <strong>${formatRupees(input.amount)}</strong> for <strong>${escape(input.slot)}</strong>. Thank you.</p>
+    <p style="margin:0 0 16px">${balance > 0 ? `Balance for this slot: <strong>${formatRupees(balance)}</strong>. We'll send the link for it before the match.` : "<strong>This slot is now fully paid.</strong>"}</p>
+    <p style="margin:0;color:#4b5d6c;font-size:13px">Razorpay payment ${escape(input.paymentId)} · Booking ${escape(input.reference)}</p>
+    ${button(input.receiptUrl, "View your booking")}`);
+  return { subject, text: lines.join("\n"), html };
 }

@@ -41,7 +41,32 @@ const schema = `
     ADD COLUMN IF NOT EXISTS cancelled_by_academy BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS customer_email TEXT,
     ADD COLUMN IF NOT EXISTS invoice_sent_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS refund_attempted_at TIMESTAMPTZ;
+    ADD COLUMN IF NOT EXISTS refund_attempted_at TIMESTAMPTZ,
+    -- Paid online when booking (25% of each slot). Empty for bookings made
+    -- before payment was split, which were paid in full.
+    ADD COLUMN IF NOT EXISTS deposit_rupees INTEGER;
+
+  -- The later payments for each booked slot: the 25% sent 24 hours before
+  -- (stage "second"), the rest sent 8 hours before ("final"), and balances
+  -- the admin collected at the ground ("cash"). The unique key means a link
+  -- is only ever sent once per slot and stage.
+  -- status: creating, sent, paid, cancelled or refunded.
+  CREATE TABLE IF NOT EXISTS slot_payments (
+    id SERIAL PRIMARY KEY,
+    booking_id INTEGER NOT NULL REFERENCES ground_bookings (id),
+    match_date DATE NOT NULL,
+    slot_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    amount_rupees INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    link_id TEXT UNIQUE,
+    link_url TEXT,
+    payment_id TEXT,
+    refund_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    paid_at TIMESTAMPTZ,
+    UNIQUE (booking_id, match_date, slot_id, stage)
+  );
   CREATE INDEX IF NOT EXISTS ground_bookings_payment
     ON ground_bookings (razorpay_payment_id);
 
@@ -67,6 +92,7 @@ const schema = `
   -- be read through this site's server, which owns the tables.
   ALTER TABLE ground_bookings ENABLE ROW LEVEL SECURITY;
   ALTER TABLE slot_locks ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE slot_payments ENABLE ROW LEVEL SECURITY;
   ALTER TABLE admissions ENABLE ROW LEVEL SECURITY;
 
   -- Failed admin sign-ins, used to lock out password guessing.
@@ -187,6 +213,8 @@ export type BookingRecord = {
   email: string | null;
   lines: PricedLine[];
   total: number;
+  // Paid online when booking. Equals the total for older, fully paid bookings.
+  deposit: number;
   orderId: string | null;
   paymentId: string | null;
   refundId: string | null;
@@ -199,7 +227,8 @@ export type BookingRecord = {
 };
 
 const columns = `id, token, status, customer_name AS name, phone, organisation,
-  lines, total_rupees AS total, razorpay_order_id AS "orderId",
+  lines, total_rupees AS total,
+  COALESCE(deposit_rupees, total_rupees) AS deposit, razorpay_order_id AS "orderId",
   razorpay_payment_id AS "paymentId", refund_id AS "refundId",
   expires_at AS "expiresAt", paid_at AS "paidAt", created_at AS "createdAt",
   cancelled_by_academy AS "cancelledByAcademy", customer_email AS email,
@@ -239,6 +268,7 @@ export async function createHold(input: {
   email: string;
   organisation: string | null;
   total: number;
+  deposit: number;
 }): Promise<
   | { ok: true; booking: BookingRecord }
   | { ok: false; taken: string[] }
@@ -248,8 +278,9 @@ export async function createHold(input: {
       await expireStaleHolds(client);
       const { rows } = await client.query<BookingRecord>(
         `INSERT INTO ground_bookings
-           (status, customer_name, phone, organisation, lines, total_rupees, expires_at, customer_email)
-         VALUES ('pending', $1, $2, $3, $4, $5, NOW() + make_interval(mins => $6), $7)
+           (status, customer_name, phone, organisation, lines, total_rupees,
+            expires_at, customer_email, deposit_rupees)
+         VALUES ('pending', $1, $2, $3, $4, $5, NOW() + make_interval(mins => $6), $7, $8)
          RETURNING ${columns}`,
         [
           input.name,
@@ -259,6 +290,7 @@ export async function createHold(input: {
           input.total,
           HOLD_MINUTES,
           input.email,
+          input.deposit,
         ],
       );
       await lockSlots(client, rows[0].id, input.lines);
@@ -488,6 +520,131 @@ export async function getBookingById(bookingId: number) {
   return rows[0] ?? null;
 }
 
+// ── Later payments: payment links and cash ───────────────────────────────
+
+export type SlotPaymentStage = "second" | "final" | "cash";
+export type SlotPayment = {
+  id: number;
+  bookingId: number;
+  date: string;
+  slotId: string;
+  stage: SlotPaymentStage;
+  amount: number;
+  status: "creating" | "sent" | "paid" | "cancelled" | "refunded";
+  linkId: string | null;
+  linkUrl: string | null;
+  paymentId: string | null;
+  refundId: string | null;
+  createdAt: string;
+  paidAt: string | null;
+};
+
+const paymentColumns = `id, booking_id AS "bookingId",
+  to_char(match_date, 'YYYY-MM-DD') AS date, slot_id AS "slotId", stage,
+  amount_rupees AS amount, status, link_id AS "linkId", link_url AS "linkUrl",
+  payment_id AS "paymentId", refund_id AS "refundId", created_at AS "createdAt",
+  paid_at AS "paidAt"`;
+
+async function onePayment(sql: string, values: unknown[]) {
+  const db = await database();
+  const { rows } = await db.query<SlotPayment>(sql, values);
+  return rows[0] ?? null;
+}
+
+export async function listSlotPayments(bookingIds: number[]) {
+  if (bookingIds.length === 0) return [];
+  const db = await database();
+  const { rows } = await db.query<SlotPayment>(
+    `SELECT ${paymentColumns} FROM slot_payments
+     WHERE booking_id = ANY($1::int[]) ORDER BY id`,
+    [bookingIds],
+  );
+  return rows;
+}
+
+// Paid bookings with a slot from today to two days ahead: the only ones that
+// can have a payment link due.
+export async function bookingsWithSlotsSoon(today: string) {
+  const db = await database();
+  const { rows } = await db.query<BookingRecord>(
+    `SELECT ${columns} FROM ground_bookings
+     WHERE status = 'confirmed' AND EXISTS (
+       SELECT 1 FROM jsonb_array_elements(lines) AS l
+       WHERE (l->>'date')::date BETWEEN $1::date AND $1::date + 2)`,
+    [today],
+  );
+  return rows;
+}
+
+// Reserves a payment stage for one slot. Only one caller ever gets it, so a
+// link is never sent twice even if two runs overlap.
+export const claimSlotPayment = (input: {
+  bookingId: number;
+  date: string;
+  slotId: string;
+  stage: SlotPaymentStage;
+  amount: number;
+}) =>
+  onePayment(
+    `INSERT INTO slot_payments (booking_id, match_date, slot_id, stage, amount_rupees, status)
+     VALUES ($1, $2::date, $3, $4, $5, 'creating')
+     ON CONFLICT (booking_id, match_date, slot_id, stage) DO NOTHING
+     RETURNING ${paymentColumns}`,
+    [input.bookingId, input.date, input.slotId, input.stage, input.amount],
+  );
+
+export const markLinkSent = (id: number, linkId: string, linkUrl: string) =>
+  onePayment(
+    `UPDATE slot_payments SET status = 'sent', link_id = $2, link_url = $3
+     WHERE id = $1 AND status = 'creating' RETURNING ${paymentColumns}`,
+    [id, linkId, linkUrl],
+  );
+
+// Gives up a claim whose link couldn't be created, so the next run tries again.
+export async function dropClaim(id: number) {
+  const db = await database();
+  await db.query("DELETE FROM slot_payments WHERE id = $1 AND status = 'creating'", [id]);
+}
+
+export const getSlotPaymentByLink = (linkId: string) =>
+  onePayment(`SELECT ${paymentColumns} FROM slot_payments WHERE link_id = $1`, [linkId]);
+
+// Safe to call more than once: only the first call changes anything.
+export const markSlotPaymentPaid = (id: number, paymentId: string) =>
+  onePayment(
+    `UPDATE slot_payments SET status = 'paid', payment_id = $2, paid_at = NOW()
+     WHERE id = $1 AND status IN ('creating', 'sent', 'cancelled')
+     RETURNING ${paymentColumns}`,
+    [id, paymentId],
+  );
+
+export const markSlotPaymentCancelled = (id: number) =>
+  onePayment(
+    `UPDATE slot_payments SET status = 'cancelled'
+     WHERE id = $1 AND status = 'sent' RETURNING ${paymentColumns}`,
+    [id],
+  );
+
+export const markSlotPaymentRefunded = (id: number, refundId: string) =>
+  onePayment(
+    `UPDATE slot_payments SET status = 'refunded', refund_id = $2
+     WHERE id = $1 AND status = 'paid' RETURNING ${paymentColumns}`,
+    [id, refundId],
+  );
+
+// The admin collected a slot's balance at the ground.
+export const recordCashPayment = (bookingId: number, date: string, slotId: string, amount: number) =>
+  onePayment(
+    `INSERT INTO slot_payments
+       (booking_id, match_date, slot_id, stage, amount_rupees, status, paid_at)
+     VALUES ($1, $2::date, $3, 'cash', $4, 'paid', NOW())
+     ON CONFLICT (booking_id, match_date, slot_id, stage) DO UPDATE
+       SET amount_rupees = slot_payments.amount_rupees + EXCLUDED.amount_rupees,
+           paid_at = NOW()
+     RETURNING ${paymentColumns}`,
+    [bookingId, date, slotId, amount],
+  );
+
 // ── Admin: search and totals ─────────────────────────────────────────────
 
 // Which bookings the admin list shows. "active" is the default view: paid
@@ -580,6 +737,7 @@ export async function searchBookings(search: BookingSearch, limit = 500) {
 
 export type BookingStats = {
   paidBookings: number;
+  balanceDue: number;
   matchesToday: number;
   bookedToday: number;
   collectedToday: number;
@@ -588,13 +746,23 @@ export type BookingStats = {
   refundsNeedingAction: number;
 };
 
-// Money counts only bookings that are paid and not refunded. `today` is the
-// India date, YYYY-MM-DD.
+// Money counts what was actually received (online and in cash) for bookings
+// that are still on, so refunded bookings drop out. `today` is the India
+// date, YYYY-MM-DD.
 export async function getBookingStats(today: string): Promise<BookingStats> {
   const db = await database();
-  const paidDay = indiaDay("paid_at");
   const { rows } = await db.query(
-    `SELECT
+    `WITH money AS (
+       SELECT COALESCE(deposit_rupees, total_rupees) AS amount, paid_at
+       FROM ground_bookings WHERE status = 'confirmed'
+       UNION ALL
+       SELECT p.amount_rupees, p.paid_at
+       FROM slot_payments p JOIN ground_bookings b ON b.id = p.booking_id
+       WHERE b.status = 'confirmed' AND p.status = 'paid'
+     ), days AS (
+       SELECT amount, ${indiaDay("paid_at")} AS day FROM money
+     )
+     SELECT
        COUNT(*) FILTER (WHERE status = 'confirmed') AS "paidBookings",
        COUNT(*) FILTER (WHERE status = 'confirmed' AND EXISTS (
          SELECT 1 FROM jsonb_array_elements(lines) AS l
@@ -602,13 +770,12 @@ export async function getBookingStats(today: string): Promise<BookingStats> {
        )) AS "matchesToday",
        COUNT(*) FILTER (WHERE status = 'confirmed'
          AND ${indiaDay("created_at")} = $1::date) AS "bookedToday",
-       COALESCE(SUM(total_rupees) FILTER (WHERE status = 'confirmed'
-         AND ${paidDay} = $1::date), 0) AS "collectedToday",
-       COALESCE(SUM(total_rupees) FILTER (WHERE status = 'confirmed'
-         AND date_trunc('month', ${paidDay}) = date_trunc('month', $1::date)), 0)
-         AS "collectedThisMonth",
+       (SELECT COALESCE(SUM(amount), 0) FROM days WHERE day = $1::date) AS "collectedToday",
+       (SELECT COALESCE(SUM(amount), 0) FROM days
+         WHERE date_trunc('month', day) = date_trunc('month', $1::date)) AS "collectedThisMonth",
+       (SELECT COALESCE(SUM(amount), 0) FROM days) AS "collectedAllTime",
        COALESCE(SUM(total_rupees) FILTER (WHERE status = 'confirmed'), 0)
-         AS "collectedAllTime",
+         - (SELECT COALESCE(SUM(amount), 0) FROM days) AS "balanceDue",
        COUNT(*) FILTER (WHERE status IN ('refund_pending', 'refund_failed'))
          AS "refundsNeedingAction"
      FROM ground_bookings`,

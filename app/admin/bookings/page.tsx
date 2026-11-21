@@ -10,11 +10,12 @@ import {
   formatRupees,
   indiaNow,
 } from "@/lib/booking";
-import { bookingViews, searchBookings, type BookingStatus } from "@/lib/db";
+import { bookingViews, listSlotPayments, searchBookings, type BookingStatus, type SlotPayment } from "@/lib/db";
+import { ledger, sumOf } from "@/lib/ledger";
 import { FilterBar, fieldWrap, selectClass } from "../_components/filters";
 import { AdminGate } from "../_components/gate";
 import { Badge, PageTitle } from "../_components/ui";
-import { CancelButton, ResendInvoiceButton, RetryRefundButton } from "./forms";
+import { CancelButton, CashButton, ResendInvoiceButton, RetryRefundButton } from "./forms";
 
 export const metadata: Metadata = { title: "Bookings" };
 
@@ -30,6 +31,16 @@ const statusLabel: Record<BookingStatus, [string, string]> = {
   cancelled_by_admin: ["Cancelled", "bg-slate-200 text-slate-700"],
 };
 
+// How a slot's later payments stand, in a few words.
+function partStatus(part: SlotPayment) {
+  const what = part.stage === "cash" ? "Cash" : part.stage === "second" ? "2nd 25%" : "Final";
+  const state =
+    part.stage === "cash" ? "collected" :
+    part.status === "sent" ? "link sent" :
+    part.status === "creating" ? "sending" : part.status;
+  return `${what} ${formatRupees(part.amount)} ${state}`;
+}
+
 const shortDate = (date: string) =>
   formatDate(date, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 
@@ -38,7 +49,10 @@ async function Bookings({ searchParams }: { searchParams: PageProps<"/admin/book
   const filters = parseBookingFilters(await searchParams, today);
   const bookings = await searchBookings(filters.search);
   const paid = bookings.filter((b) => b.status === "confirmed");
-  const paidTotal = paid.reduce((sum, b) => sum + b.total, 0);
+  const payments = await listSlotPayments(paid.map((b) => b.id));
+  const ledgers = new Map(paid.map((b) => [b.id, ledger(b, payments)]));
+  const paidTotal = [...ledgers.values()].reduce((sum, l) => sum + sumOf(l, "paid"), 0);
+  const balanceTotal = [...ledgers.values()].reduce((sum, l) => sum + sumOf(l, "balance"), 0);
   const slotCount = paid.reduce((sum, b) => sum + b.lines.length, 0);
   const events = blockedSlots.filter((b) => b.date >= today);
 
@@ -73,7 +87,7 @@ async function Bookings({ searchParams }: { searchParams: PageProps<"/admin/book
         {paid.length > 0 && (
           <span className="font-normal text-muted-foreground">
             {" "}· {paid.length} paid, {slotCount} {slotCount === 1 ? "slot" : "slots"},{" "}
-            {formatRupees(paidTotal)} collected
+            {formatRupees(paidTotal)} collected, {formatRupees(balanceTotal)} still due
           </span>
         )}
         {bookings.length === 500 && (
@@ -145,20 +159,46 @@ async function Bookings({ searchParams }: { searchParams: PageProps<"/admin/book
                   </td>
                   <td className="p-3">
                     <ul className="space-y-1">
-                      {booking.lines.map((line) => (
-                        <li key={`${line.date}${line.slotId}`}>
-                          <span className={`font-semibold ${line.date === today ? "text-ball" : ""}`}>
-                            {line.date === today ? "Today" : shortDate(line.date)}
-                          </span>
-                          , {line.slotName} ({line.timing})
-                          {(line.balls > 0 || line.umpires) && (
-                            <span className="text-muted-foreground">
-                              {" "}
-                              + {[line.balls > 0 && `${line.balls} balls`, line.umpires && "umpires"].filter(Boolean).join(", ")}
+                      {booking.lines.map((line, n) => {
+                        const slot = ledgers.get(booking.id)?.[n];
+                        return (
+                          <li key={`${line.date}${line.slotId}`}>
+                            <span className={`font-semibold ${line.date === today ? "text-ball" : ""}`}>
+                              {line.date === today ? "Today" : shortDate(line.date)}
                             </span>
-                          )}
-                        </li>
-                      ))}
+                            , {line.slotName} ({line.timing})
+                            {(line.balls > 0 || line.umpires) && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                + {[line.balls > 0 && `${line.balls} balls`, line.umpires && "umpires"].filter(Boolean).join(", ")}
+                              </span>
+                            )}
+                            {slot && (
+                              <div className="mt-0.5 mb-1.5 text-xs">
+                                <span className="text-emerald-700">Paid {formatRupees(slot.paid)}</span>
+                                {slot.balance > 0 ? (
+                                  <span className="font-semibold text-red-700"> · Due {formatRupees(slot.balance)}</span>
+                                ) : (
+                                  <span className="text-emerald-700"> · Fully paid</span>
+                                )}
+                                {slot.payments.map((part) => (
+                                  <span key={part.id} className="block text-muted-foreground">
+                                    {partStatus(part)}
+                                  </span>
+                                ))}
+                                {slot.balance > 0 && (
+                                  <CashButton
+                                    id={booking.id}
+                                    date={line.date}
+                                    slotId={line.slotId}
+                                    label={`${bookingReference(booking.id)}, ${shortDate(line.date)} ${line.slotName}`}
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </td>
                   <td className="p-3">
@@ -175,7 +215,14 @@ async function Bookings({ searchParams }: { searchParams: PageProps<"/admin/book
                       <span className="block text-muted-foreground">{booking.organisation}</span>
                     )}
                   </td>
-                  <td className="p-3 font-bold whitespace-nowrap">{formatRupees(booking.total)}</td>
+                  <td className="p-3 whitespace-nowrap">
+                    <span className="font-bold">{formatRupees(booking.total)}</span>
+                    {ledgers.has(booking.id) && (
+                      <span className="block text-xs text-muted-foreground">
+                        Paid {formatRupees(sumOf(ledgers.get(booking.id)!, "paid"))}
+                      </span>
+                    )}
+                  </td>
                   <td className="p-3">
                     {(booking.status === "confirmed" || booking.status === "pending") && (
                       <CancelButton

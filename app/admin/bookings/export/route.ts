@@ -2,7 +2,8 @@ import type { NextRequest } from "next/server";
 import { parseBookingFilters } from "@/lib/admin-filters";
 import { spreadsheetDateTime } from "@/lib/admin-format";
 import { bookingReference, indiaNow } from "@/lib/booking";
-import { searchBookings } from "@/lib/db";
+import { listSlotPayments, searchBookings } from "@/lib/db";
+import { ledger, sumOf } from "@/lib/ledger";
 import { csvResponse } from "@/lib/csv";
 import { adminAccess } from "../../_components/gate";
 
@@ -14,16 +15,21 @@ export async function GET(request: NextRequest) {
   const { today } = indiaNow();
   const { search } = parseBookingFilters(request.nextUrl.searchParams, today);
   const bookings = await searchBookings(search, 10_000);
+  const payments = await listSlotPayments(
+    bookings.filter((b) => b.status === "confirmed").map((b) => b.id),
+  );
 
   return csvResponse(
     `ccs-bookings-${today}.csv`,
     [
       "Reference", "Status", "Cancelled by academy", "Match dates and slots",
       "Slots", "Customer", "Phone", "Email", "Team or organisation",
-      "Total (Rs)", "Booked at", "Paid at", "Razorpay payment ID",
+      "Total (Rs)", "Paid (Rs)", "Balance (Rs)", "Booked at", "Paid at", "Razorpay payment ID",
       "Refund ID", "Invoice emailed",
     ],
-    bookings.map((b) => [
+    bookings.map((b) => {
+      const slots = b.status === "confirmed" ? ledger(b, payments) : null;
+      return [
       bookingReference(b.id),
       b.status,
       b.cancelledByAcademy ? "yes" : "",
@@ -40,11 +46,14 @@ export async function GET(request: NextRequest) {
       b.email,
       b.organisation,
       b.total,
+      slots ? sumOf(slots, "paid") : "",
+      slots ? sumOf(slots, "balance") : "",
       spreadsheetDateTime(b.createdAt),
       spreadsheetDateTime(b.paidAt),
       b.paymentId,
       b.refundId,
       b.invoiceSentAt ? "yes" : "",
-    ]),
+      ];
+    }),
   );
 }

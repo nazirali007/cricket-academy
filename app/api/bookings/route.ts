@@ -15,6 +15,7 @@ import {
   setOrderId,
 } from "@/lib/db";
 import { createOrder, isPaymentConfigured, publicKeyId } from "@/lib/razorpay";
+import { depositFor } from "@/lib/installments";
 import { cleanText, normalisePhone } from "@/lib/form-input";
 
 const MAX_HOLDS_PER_PHONE_PER_HOUR = 6;
@@ -24,7 +25,8 @@ const fail = (status: number, error: string, extra: object = {}) =>
 
 const text = cleanText;
 
-// Reserves the slots and opens a Razorpay order for the exact total.
+// Reserves the slots and opens a Razorpay order for the booking amount: 25% of
+// every slot. The rest is collected slot by slot, closer to each match.
 export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try {
@@ -66,6 +68,7 @@ export async function POST(request: Request) {
   // The server always works the price out itself. If it differs from what the
   // customer was shown, they review it again before paying.
   const priced = priceCart(items);
+  const deposit = depositFor(priced.lines);
   if (body.expectedTotal !== priced.total) {
     return fail(409, "The price has changed. Please check the new total.", {
       code: "price_changed",
@@ -88,6 +91,7 @@ export async function POST(request: Request) {
       email,
       organisation,
       total: priced.total,
+      deposit,
     });
     if (!hold.ok) {
       return fail(409, "Some of your slots have just been booked.", {
@@ -100,7 +104,7 @@ export async function POST(request: Request) {
     let orderId: string;
     try {
       const order = await createOrder(
-        priced.total * 100,
+        deposit * 100,
         bookingReference(booking.id),
         { booking_id: String(booking.id) },
       );
@@ -118,7 +122,7 @@ export async function POST(request: Request) {
         reference: bookingReference(booking.id),
         orderId,
         keyId: publicKeyId(),
-        amount: priced.total * 100,
+        amount: deposit * 100,
         expiresAt: booking.expiresAt,
       },
       { status: 201 },

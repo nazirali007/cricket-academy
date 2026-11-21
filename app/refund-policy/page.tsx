@@ -19,24 +19,27 @@ export default function RefundPolicyPage() {
     >
       <h2>No refunds after booking</h2>
       <p>
-        Once your payment is complete and your slot is booked, the booking is final.
-        If you cancel, change your plans or don&apos;t arrive, the amount you paid
-        will not be refunded.
+        Once you pay the booking amount and your slot is booked, the booking is
+        final. If you cancel, change your plans or don&apos;t arrive, the amounts
+        you have already paid will not be refunded.
       </p>
 
       <h2>If the academy cancels your match</h2>
       <p>
-        If CCS Academy cancels your booked slot, you will get a 100% refund of the
-        amount you paid for that booking, including any match balls and umpires
-        you paid for. This is the only case in which a booking is refunded.
+        If CCS Academy cancels your booked slot, you will get a 100% refund of
+        everything you paid for that booking, including any match balls and
+        umpires. Payments made online (the booking amount and any payment links)
+        are refunded through Razorpay, and anything paid in cash at the ground is
+        returned in cash. Any payment links you haven&apos;t paid yet are
+        cancelled. This is the only case in which a booking is refunded.
       </p>
 
       <h2>If a payment doesn&apos;t result in a booking</h2>
       <p>
         When you press Pay, your slots are held for you for {HOLD_MINUTES} minutes.
         If your payment reaches us after that time and someone else has booked one
-        of your slots in the meantime, your booking can&apos;t go ahead, and your
-        full payment is refunded automatically. You are never charged for a slot
+        of your slots in the meantime, your booking can&apos;t go ahead, and what
+        you paid is refunded in full automatically. You are never charged for a slot
         you did not get.
       </p>
 

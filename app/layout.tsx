@@ -91,7 +91,7 @@ const jsonLd = {
   ],
   email: contact.email,
   telephone: bookingPhone.replace(/\s/g, ""),
-  priceRange: "₹5,000 - ₹15,000",
+  priceRange: "₹3,500 - ₹13,000",
   hasMap: mapsUrl,
   sport: "Cricket",
   address: {

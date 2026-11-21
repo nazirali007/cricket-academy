@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { isAdmin } from "@/lib/admin-auth";
 import { cancelBookingAsAdmin, getBookingById, markInvoiceSent } from "@/lib/db";
 import { sendInvoice } from "@/lib/email";
+import { isValidDate } from "@/lib/booking";
+import { collectCash } from "@/lib/payment-links";
 import { refundInFull, retryRefund as retry } from "@/lib/payments";
 
 export async function cancelBooking(form: FormData) {
@@ -36,6 +38,21 @@ export async function resendInvoice(form: FormData) {
     if (await sendInvoice(booking)) await markInvoiceSent(booking.id);
   } catch (error) {
     console.error(`Could not resend invoice for ${id}`, error);
+  }
+  revalidatePath("/admin", "layout");
+}
+
+// The customer paid a slot's balance at the ground.
+export async function markCashPaid(form: FormData) {
+  if (!(await isAdmin())) return;
+  const id = Number(form.get("id"));
+  const date = String(form.get("date") ?? "");
+  const slotId = String(form.get("slotId") ?? "");
+  if (!Number.isInteger(id) || id <= 0 || !isValidDate(date)) return;
+  try {
+    await collectCash(id, date, slotId);
+  } catch (error) {
+    console.error(`Could not record cash for booking ${id}`, error);
   }
   revalidatePath("/admin", "layout");
 }

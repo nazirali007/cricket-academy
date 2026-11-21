@@ -13,6 +13,7 @@ import {
   weekdaySlots,
   weekendSlots,
 } from "@/lib/booking";
+import { FINAL_PART_HOURS, SECOND_PART_HOURS } from "@/lib/installments";
 import { sharedOpenGraph } from "@/lib/seo";
 import {
   bookingPhone,
@@ -77,6 +78,10 @@ const faqs = [
   {
     question: "How do I book a slot?",
     answer: `Choose a date and a green Available slot on this page, add any extras, then enter your name and mobile number. You can book up to ${MAX_DAYS_AHEAD} days ahead, or call ${bookingPhone}.`,
+  },
+  {
+    question: "Do I have to pay the full amount when booking?",
+    answer: `No. You pay 25% online to book. For each slot, we send a payment link by SMS and email for the next 25% ${SECOND_PART_HOURS} hours before the match, and for the balance ${FINAL_PART_HOURS} hours before. Anything left can be paid at the ground.`,
   },
   {
     question: "What are the rules at the ground?",

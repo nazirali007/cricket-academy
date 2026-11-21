@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { recordLinkPayment } from "@/lib/payment-links";
 import { settlePayment, syncRefund } from "@/lib/payments";
 import {
   ORDER_ID,
   PAYMENT_ID,
+  PAYMENT_LINK_ID,
   REFUND_ID,
   verifyWebhookSignature,
   type RazorpayRefund,
@@ -13,12 +15,14 @@ type WebhookEvent = {
   payload?: {
     payment?: { entity?: { id?: string; order_id?: string } };
     refund?: { entity?: Partial<RazorpayRefund> };
+    payment_link?: { entity?: { id?: string } };
   };
 };
 
 // Razorpay calls this directly, so a booking is still confirmed if the
-// customer's browser closes or loses connection right after paying, and
-// refunds (including ones made from the Razorpay dashboard) show up in admin.
+// customer's browser closes or loses connection right after paying, later
+// payment links are recorded the moment they're paid, and refunds (including
+// ones made from the Razorpay dashboard) show up in admin.
 export async function POST(request: Request) {
   const body = await request.text();
   const signature = request.headers.get("x-razorpay-signature") ?? "";
@@ -36,7 +40,10 @@ export async function POST(request: Request) {
   try {
     const payment = event.payload?.payment?.entity;
     const refund = event.payload?.refund?.entity;
-    if (
+    const link = event.payload?.payment_link?.entity;
+    if (event.event === "payment_link.paid") {
+      if (link?.id && PAYMENT_LINK_ID.test(link.id)) await recordLinkPayment(link.id);
+    } else if (
       (event.event === "payment.captured" ||
         event.event === "payment.authorized" ||
         event.event === "order.paid") &&

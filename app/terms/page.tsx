@@ -7,6 +7,7 @@ import {
   MAX_SLOTS_PER_BOOKING,
   slotSummary,
 } from "@/lib/booking";
+import { FINAL_PART_HOURS, SECOND_PART_HOURS } from "@/lib/installments";
 import { bookingPhone, contact } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -31,16 +32,17 @@ export default function TermsPage() {
       <h2>Booking the ground</h2>
       <ul>
         <li>
-          Slots, timings and rates are shown on our website. The price you see on
-          the review screen is the full amount you pay. No extra charges are added.
+          Slots, timings and rates are shown on our website. The total you see on
+          the review screen is the full price. No extra charges are added.
         </li>
         <li>
           You can book up to {MAX_SLOTS_PER_BOOKING} slots at a time, up to{" "}
           {MAX_DAYS_AHEAD} days ahead.
         </li>
         <li>
-          Your booking is confirmed only after your payment is complete. When you
-          press Pay, your slots are held for you for {HOLD_MINUTES} minutes.
+          Your booking is confirmed once you pay the booking amount (25% of each
+          slot). When you press Pay, your slots are held for you for{" "}
+          {HOLD_MINUTES} minutes.
         </li>
         <li>
           There are 4 slots every day: {slotSummary}.
@@ -56,9 +58,25 @@ export default function TermsPage() {
       </ul>
 
       <h2>Payments</h2>
+      <p>Each slot is paid for in three parts:</p>
+      <ul>
+        <li>25% when you book, online.</li>
+        <li>
+          25% from {SECOND_PART_HOURS} hours before the slot starts. We send the
+          payment link to your mobile by SMS and to your email. If you book less
+          than a day ahead, this part is added to the last one.
+        </li>
+        <li>
+          The balance (usually 50%) from {FINAL_PART_HOURS} hours before the slot
+          starts, by another payment link.
+        </li>
+      </ul>
       <p>
-        Payments are processed securely by Razorpay. We never see or store your
-        card, UPI or bank details.
+        If you book several slots, each slot&apos;s links are sent before that
+        slot&apos;s own match, so you only pay ahead for your next match. Anything
+        unpaid at match time is paid at the ground before play. Payments are
+        processed securely by Razorpay. We never see or store your card, UPI or
+        bank details.
       </p>
 
       <h2>Cancellations and refunds</h2>
