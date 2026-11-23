@@ -1,8 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { clientIp, endAdminSession, startAdminSession } from "@/lib/admin-auth";
+import { clientIp, endAdminSession, isAdmin, startAdminSession } from "@/lib/admin-auth";
 import { credentialsMatch, isAdminConfigured, safeAdminPath } from "@/lib/admin-session";
+import { explainEmailError, isEmailConfigured, sendTestEmail } from "@/lib/email";
 import {
   clearLoginFailures,
   isDatabaseConfigured,
@@ -66,4 +67,21 @@ export async function logIn(_previous: LoginState, form: FormData): Promise<Logi
 export async function logOut() {
   await endAdminSession();
   redirect("/admin/login");
+}
+
+export type TestEmailState = { ok: boolean; message: string } | null;
+
+// "Send test email" on the dashboard: proves the mail settings really work.
+export async function testEmail(): Promise<TestEmailState> {
+  if (!(await isAdmin())) return { ok: false, message: "Please sign in again." };
+  if (!isEmailConfigured()) {
+    return { ok: false, message: "Email isn't set up on the server yet." };
+  }
+  try {
+    const to = await sendTestEmail();
+    return { ok: true, message: `Sent to ${to}. Check that inbox (and Spam).` };
+  } catch (error) {
+    console.error("Test email failed", error);
+    return { ok: false, message: explainEmailError(error) };
+  }
 }

@@ -25,8 +25,16 @@ export const indiaTime = (at: number | string | Date) =>
 
 const receiptUrl = (booking: BookingRecord) => `${siteUrl}/booking/${booking.token}`;
 
-export const isEmailConfigured = () =>
-  Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
+const SMTP_SETTINGS = ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"] as const;
+
+// The email settings that still need filling in on the server.
+export const missingEmailSettings = () => SMTP_SETTINGS.filter((key) => !process.env[key]?.trim());
+
+export const isEmailConfigured = () => missingEmailSettings().length === 0;
+
+// Google shows App passwords in groups of four ("abcd efgh ijkl mnop"); the
+// spaces aren't part of the password.
+const smtpPassword = () => (process.env.SMTP_PASSWORD ?? "").replace(/\s+/g, "");
 
 // Sends from the academy's own mailbox. Returns false, without sending, until
 // the SMTP settings are in place, so the site still works without them.
@@ -36,22 +44,26 @@ export async function sendMail(message: {
   text: string;
   html?: string;
 }) {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD } = process.env;
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD) return false;
+  const missing = missingEmailSettings();
+  if (missing.length) {
+    console.warn(`Email "${message.subject}" not sent: set ${missing.join(", ")} on the server.`);
+    return false;
+  }
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER } = process.env;
 
   const port = Number(SMTP_PORT) || 465;
   const transport = nodemailer.createTransport({
-    host: SMTP_HOST,
+    host: SMTP_HOST!.trim(),
     port,
     secure: port === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASSWORD },
+    auth: { user: SMTP_USER!.trim(), pass: smtpPassword() },
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,
     socketTimeout: 15_000,
   });
 
   await transport.sendMail({
-    from: `"CCS Academy" <${SMTP_USER}>`,
+    from: `"CCS Academy" <${SMTP_USER!.trim()}>`,
     replyTo: contact.email,
     ...message,
   });
@@ -224,3 +236,34 @@ export const sendRefundAlert = (
       ...describe(booking),
     ],
   );
+
+// Gmail's error, in words the academy can act on.
+export function explainEmailError(error: unknown) {
+  const text = error instanceof Error ? error.message : String(error);
+  if (/535|Username and Password not accepted|Invalid login|BadCredentials/i.test(text)) {
+    return "Gmail refused the password. SMTP_PASSWORD must be a 16-letter Google App password (not your normal Gmail password), and SMTP_USER must be the same Gmail address that created it.";
+  }
+  if (/534|Application-specific password required|WebLoginRequired/i.test(text)) {
+    return "Gmail wants an App password. Turn on 2-Step Verification for the account, create an App password, and put it in SMTP_PASSWORD.";
+  }
+  if (/ENOTFOUND|EAI_AGAIN/i.test(text)) return "The mail server couldn't be found. Check SMTP_HOST is smtp.gmail.com.";
+  if (/ETIMEDOUT|ECONNREFUSED|ECONNRESET|timeout/i.test(text)) {
+    return "Couldn't connect to the mail server. Check SMTP_HOST is smtp.gmail.com and SMTP_PORT is 465.";
+  }
+  return text;
+}
+
+// Sends a test email to the academy's inbox, from the admin dashboard.
+export async function sendTestEmail() {
+  const to = process.env.BOOKING_EMAIL_TO || contact.email;
+  await sendMail({
+    to,
+    subject: "CCS Academy website: email is working",
+    text: [
+      "This is a test from your website's admin page.",
+      "",
+      "Booking confirmations, invoices, payment links and payment receipts will now be emailed to customers, and new booking alerts will come to this inbox.",
+    ].join("\n"),
+  });
+  return to;
+}

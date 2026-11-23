@@ -5,7 +5,9 @@ import { formatDateTime } from "@/lib/admin-format";
 import { admissionStatuses, getAdmissionStats, searchAdmissions } from "@/lib/admissions";
 import { bookingReference, formatDate, formatRupees, indiaNow } from "@/lib/booking";
 import { getBookingStats, searchBookings } from "@/lib/db";
+import { missingEmailSettings } from "@/lib/email";
 import { isTestMode } from "@/lib/razorpay";
+import { EmailStatus } from "./_components/email-status";
 import { AdminGate } from "./_components/gate";
 import { PageTitle, StatCard } from "./_components/ui";
 
@@ -33,6 +35,8 @@ async function Overview() {
           (rzp_live_…) in the hosting settings.
         </p>
       )}
+
+      <EmailStatus missing={missingEmailSettings()} />
 
       {bookings.refundsNeedingAction > 0 && (
         <Link
