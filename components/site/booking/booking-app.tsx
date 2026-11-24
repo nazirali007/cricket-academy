@@ -1205,6 +1205,10 @@ export function BookingApp() {
                   By paying, you agree to our{" "}
                   <Link href="/terms" target="_blank" className="font-semibold underline">
                     Terms
+                  </Link>
+                  ,{" "}
+                  <Link href="/terms#ground-rules" target="_blank" className="font-semibold underline">
+                    Ground Rules
                   </Link>{" "}
                   and{" "}
                   <Link href="/refund-policy" target="_blank" className="font-semibold underline">

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { GroundRules } from "@/components/site/ground-rules";
 import { LegalPage } from "@/components/site/legal-page";
 import {
   HOLD_MINUTES,
@@ -13,7 +14,7 @@ import { bookingPhone, contact } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Terms & Conditions",
   description:
-    "Terms and conditions for using the CCS Cricket Academy website and booking the cricket ground in Lucknow.",
+    "Terms, conditions and ground rules for booking the CCS Academy cricket ground in Lucknow: booking and payment, rain and light rules, conduct, corporate matches and refunds.",
   alternates: { canonical: "/terms" },
 };
 
@@ -21,7 +22,7 @@ export default function TermsPage() {
   return (
     <LegalPage
       title="Terms & Conditions"
-      intro="These terms apply when you use this website or book the cricket ground at CCS Academy. By booking, you agree to them."
+      intro="These terms and the ground rules below apply when you use this website or book the cricket ground at CCS Academy. By booking, you and every player in your team agree to follow them."
     >
       <h2>Who we are</h2>
       <p>
@@ -33,7 +34,10 @@ export default function TermsPage() {
       <ul>
         <li>
           Slots, timings and rates are shown on our website. The total you see on
-          the review screen is the full price. No extra charges are added.
+          the review screen is the full price for your booked time. Nothing else
+          is added, except the charges set out in the{" "}
+          <a href="#ground-rules">ground rules</a> (for example, for playing
+          beyond your slot time).
         </li>
         <li>
           You can book up to {MAX_SLOTS_PER_BOOKING} slots at a time, up to{" "}
@@ -74,25 +78,34 @@ export default function TermsPage() {
       <p>
         If you book several slots, each slot&apos;s links are sent before that
         slot&apos;s own match, so you only pay ahead for your next match. Anything
-        unpaid at match time is paid at the ground before play. Payments are
+        unpaid at match time is paid at the ground before play, and in any case
+        the second innings starts only once the full amount is paid (ground rule
+        9). Payments are
         processed securely by Razorpay. We never see or store your card, UPI or
         bank details.
       </p>
 
       <h2>Cancellations and refunds</h2>
       <p>
-        Bookings are not refundable if you cancel. If the academy cancels your
-        match, you get a 100% refund. See our{" "}
+        Once a booking is confirmed, the amount paid is not refunded (ground rule
+        3). If the academy cancels your match, you get a 100% refund. Rain,
+        natural disasters and technical problems are covered by ground rules
+        8–11. See our{" "}
         <Link href="/refund-policy">Refund &amp; Cancellation Policy</Link> for
         details.
       </p>
 
-      <h2>Rules at the ground</h2>
-      <ul>
-        <li>Smoking is not allowed.</li>
-        <li>Tobacco and gutkha are not allowed.</li>
-        <li>Please follow the instructions of academy staff at the ground.</li>
-      </ul>
+      <h2 id="ground-rules" className="scroll-mt-28">Ground rules</h2>
+      <p>
+        These are the academy&apos;s official ground rules (नियम व शर्तें), the
+        same as on the rules board at the ground. The team that books is
+        responsible for making sure all its players and guests follow them.
+      </p>
+      <GroundRules />
+      <p>
+        Tobacco and gutkha are also not allowed at the ground. Please follow the
+        instructions of academy staff at all times.
+      </p>
 
       <h2>Your information</h2>
       <p>

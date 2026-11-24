@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export const LEGAL_UPDATED = "7 November 2026";
+export const LEGAL_UPDATED = "23 November 2026";
 
 export function LegalPage({
   title,

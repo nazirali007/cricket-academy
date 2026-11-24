@@ -15,7 +15,7 @@ export default function RefundPolicyPage() {
   return (
     <LegalPage
       title="Refund & Cancellation Policy"
-      intro="Please read this before you book. In short: ground bookings are not refundable, except when the academy cancels your match."
+      intro="Please read this before you book. In short: once a booking is confirmed it is not refundable, except when the academy cancels your match. Rain and weather follow the ground rules."
     >
       <h2>No refunds after booking</h2>
       <p>
@@ -31,7 +31,35 @@ export default function RefundPolicyPage() {
         umpires. Payments made online (the booking amount and any payment links)
         are refunded through Razorpay, and anything paid in cash at the ground is
         returned in cash. Any payment links you haven&apos;t paid yet are
-        cancelled. This is the only case in which a booking is refunded.
+        cancelled.
+      </p>
+
+      <h2>If a match is cancelled because of the rules</h2>
+      <p>
+        If your match is cancelled because a player breaks the ground rules
+        (for example, a player arrives drunk, or someone smokes or drinks at the
+        ground), this is not a cancellation by the academy, and nothing is
+        refunded.
+      </p>
+
+      <h2>Rain, bad weather and technical problems</h2>
+      <ul>
+        <li>
+          If play is cancelled because of rain, a natural disaster or any
+          technical reason, the decision of the academy management is final.
+        </li>
+        <li>
+          If it rains after 10 overs of the first innings have been completed,
+          only 50% of the ground fee is charged.
+        </li>
+        <li>
+          If the academy&apos;s lights fail, the match restarts from the same
+          over at which play stopped.
+        </li>
+        <li>A match that has to be moved is played on a day the ground is available.</li>
+      </ul>
+      <p>
+        See the full <Link href="/terms#ground-rules">ground rules</Link>.
       </p>
 
       <h2>If a payment doesn&apos;t result in a booking</h2>

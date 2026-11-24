@@ -86,7 +86,12 @@ const faqs = [
   {
     question: "What are the rules at the ground?",
     answer:
-      "Smoking, tobacco and gutkha are not allowed at the ground. A canteen is available inside.",
+      "Smoking, alcohol, tobacco and gutkha are not allowed at the ground. A player who arrives drunk is not allowed to play and the match is cancelled. Spiked shoes are not allowed in corporate matches, and playing beyond your slot time is charged extra. A canteen is available inside. The full list of 20 ground rules is on our Terms page.",
+  },
+  {
+    question: "What happens if it rains during my match?",
+    answer:
+      "If it rains after 10 overs of the first innings have been completed, only 50% of the ground fee is charged. If rain, a natural disaster or a technical problem cancels play, the academy management's decision is final, and a match that has to be moved is played on a day the ground is available.",
   },
 ];
 
